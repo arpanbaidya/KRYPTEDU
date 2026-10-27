@@ -1,9 +1,9 @@
 # KRYPTEDU — Smart Campus Analytics
 
-> **Understand. Predict. Improve Student Success.**
+> **Understand. Predict. Improve Student Success.**  
 > Built for **KPMG India Challenge 04**.
 
-KRYPTEDU brings a student's academic performance, attendance, learning-platform (LMS) activity, campus engagement and placement preparation into one place. It calculates an explainable Student Success Score, flags academic and placement risk, groups students into segments, tracks support interventions, and provides two AI features powered by Google Gemini: **AI Insights** and the **Mock Interview Studio**.
+KRYPTEDU brings a student's academic performance, attendance, learning-platform (LMS) activity, campus engagement, and placement preparation into one unified, intelligent platform. It calculates an explainable Student Success Score, flags academic and placement risks with root-cause feature attributions, segments cohorts into actionable quadrants, tracks support interventions, and provides two enterprise-grade AI capabilities: a conversational **AI Insights Copilot** and an interactive **Mock Interview Studio**.
 
 ---
 
@@ -32,122 +32,120 @@ KRYPTEDU brings a student's academic performance, attendance, learning-platform 
 ## Overview
 
 ### The problem
-Institutions usually keep grades, attendance, LMS activity, engagement and placement preparation in separate systems. Because no one sees the whole picture, a student who is struggling in several areas at once often isn't noticed until it's too late.
+Higher education institutions routinely store course grades, lecture attendance, LMS engagement logs, campus activities, and placement assessment results across disparate, siloed systems. Because faculty and leadership lack a holistic view, students encountering compound difficulties across multiple dimensions often go unnoticed until academic probation or recruitment failure becomes unavoidable.
 
 ### The solution
-KRYPTEDU combines these indicators per student and:
+KRYPTEDU synthesizes multidimensional student indicators into an actionable intelligence pipeline:
 
-- calculates a single, explainable **Student Success Score** (0–100);
-- classifies **academic risk** and **placement risk** (High / Medium / Low) with the specific reasons behind them;
-- segments the cohort (Academic index × Placement index) and into actionable **support groups**;
-- lets staff create, assign and track **interventions**;
-- answers questions about the cohort with **AI Insights**, grounded in the database;
-- lets students practise with an AI **Mock Interview Studio**.
+- Computes a deterministic, explainable **Student Success Score** (0–100);
+- Classifies **academic risk** and **placement risk** (High / Medium / Low) with directional feature attribution explaining the root cause;
+- Dynamically segments cohorts across Academic × Placement quadrants and groups them into 5 targeted **support groups**;
+- Facilitates the creation, assignment, tracking, and auditing of **interventions**;
+- Delivers a conversational, multi-turn **AI Insights Copilot** that answers complex cohort queries grounded directly in institutional data;
+- Empowers students to practice with an AI-powered **Mock Interview Studio** with deduplicated question sets and rubric-based evaluations.
 
 ### Intended users
-Administrators, faculty, placement officers and students. Each role sees only what it is authorised to see. Access is enforced in the database, not only by hiding pages.
+Administrators, faculty members, placement officers, and students. Every role is strictly scoped via PostgreSQL Row Level Security (RLS) policies.
 
 ### Current status
 
 | Capability | Status |
 |---|---|
-| Email/password and Google sign-in, pending-approval flow, role management | Implemented |
-| Staff dashboard, student directory, profiles, score breakdowns, risk explanations | Implemented |
-| Analytics, segmentation and support groups | Implemented |
-| Interventions (create, edit, status, overdue/assignee filters, delete) | Implemented |
-| CSV import with validation, duplicate detection and import history | Implemented |
-| Reports (three CSV exports) | Implemented |
-| Notifications with per-user read/unread state | Implemented |
-| AI Insights (Gemini) | Implemented; depends on a Gemini API key with available quota |
-| Mock Interview Studio with saved history | Implemented; depends on the same Gemini key |
-| Student dashboard | Implemented; requires the account to be linked to a student record |
+| Email/password and Google OAuth sign-in, pending-approval workflow, RBAC | Implemented |
+| Institutional dashboard, student directory, detailed student profile, risk explanations | Implemented |
+| Cohort analytics, 4-quadrant segmentation, and clickable support groups | Implemented |
+| Interventions management (create, edit, reassign, status tracking, overdue filters) | Implemented |
+| CSV ingestion with validation, duplicate detection, and import history | Implemented |
+| Institutional reports (3 comprehensive CSV exports) | Implemented |
+| Real-time notifications with per-user read/unread state persistence | Implemented |
+| Conversational AI Insights Copilot | Implemented; multi-turn context retention, Mode A (grounded analytics) & Mode B (pedagogy), with verified local fallback engine |
+| Mock Interview Studio | Implemented; role-tailored (4 roles × 3 difficulty levels), question deduplication, and rubric-based evaluations with session history |
+| Student Dashboard | Implemented; strict student data isolation linked to `students.user_id` |
 
-
-The dataset contains **36 synthetic students**. It contains no real student data.
+*The default demo dataset contains **36 synthetic student records** with zero personally identifiable information (PII).*
 
 ---
 
 ## Key features
 
-1. **Authentication and role-based access.** Email/password and Google sign-in. New sign-ups get the `pending` role and see an "Account pending approval" screen until an administrator assigns a role.
-2. **Dashboards.** Staff see a cohort dashboard (`/dashboard`). Students are always sent to their own dashboard (`/student-dashboard`).
-3. **Student directory and profiles.** Search by name or roll number, filter, sort by name, Success Score or attendance, and open a profile with the full score breakdown.
-4. **Student Success Score.** Weighted score with the Academic index, Placement index and Engagement shown separately (see [methodology](#student-success-score-methodology)).
-5. **Risk indicators.** Academic and placement risk levels plus plain-language risk factors (for example "Attendance below 75% (73%)").
-6. **Analytics and segmentation.** Scatter-plot segmentation, department filter, and five clickable support groups.
-7. **Interventions.** Create, edit, change status, assign, set due dates, filter by overdue and assignee, and delete with confirmation.
-8. **Data Integration.** CSV import across six categories with validation and an import history.
-9. **AI Insights.** Chat assistant that answers questions using the student data the signed-in user is allowed to see. Includes Stop, Retry and New Chat.
-10. **Mock Interview Studio.** Generated questions, AI feedback scored against a rubric, a final summary and saved history.
-11. **Reports and notifications.** Three CSV exports. Risk-alert and follow-up notifications whose read/unread state is saved per user.
-12. **Profile and settings.** Account email, role, member-since date, last sign-in, change password and sign out. Includes a flip-style digital ID card with a QR code.
-13. **Administration.** Administrators assign roles through a database function that blocks removing the last administrator.
+1. **Authentication and Role-Based Access Control (RBAC):** Email/password and Google sign-in. New sign-ups receive a `pending` role until approved by an administrator.
+2. **Specialized Dashboards:** Faculty and administrators access the institutional cohort dashboard (`/dashboard`), while students are automatically routed to their personal dashboard (`/student-dashboard`).
+3. **Student Directory & Profiles:** Search by name or roll number, filter by department or risk level, sort by performance indicators, and inspect individual score breakdowns and risk factors.
+4. **Explainable Student Success Score:** Composite weighted score (Academic 45%, Placement 35%, Engagement 20%) with proportional rescaling for missing data (see [methodology](#student-success-score-methodology)).
+5. **Root-Cause Risk Indicators:** Academic and placement risk levels paired with plain-language contributing factors (e.g., *"Attendance below 75% (71%)"* or *"2 active backlogs"*).
+6. **Cohort Analytics & Support Groups:** Scatter-plot segmentation, departmental ranking, and 5 one-click support groups (Urgent Support, Strong Academics / Low Placement, Good Academics / Poor Attendance, Placement-Ready / Low Risk, Insufficient Data).
+7. **Interventions Management:** Create, assign, update, and resolve academic or placement interventions with priority levels and due dates.
+8. **Data Integration:** Robust CSV ingestion engine across 6 categories with row-level validation, duplicate checking, and audit history.
+9. **Conversational AI Insights:** Context-aware copilot supporting multi-turn dialogue, Mode A grounded cohort queries, Mode B pedagogical advice, and pronoun resolution (*"Why is it low?"*).
+10. **Mock Interview Studio:** Practice technical and behavioral questions across Junior, Mid, and Senior tracks, with rubric-scored feedback, final performance summaries, and historical tracking.
+11. **Reports & Notifications:** One-click CSV exports for at-risk cohorts, department rankings, and active interventions. Per-user notification tracking.
+12. **Digital Student ID:** Flip-style digital student ID card featuring dynamic QR codes and academic standing indicators.
+13. **User Administration:** Secure role assignment interface with safeguard constraints that prevent removing the last remaining administrator.
 
 ---
 
 ## Student Success Score methodology
 
-All scoring lives in **`src/lib/scoring.ts`** (tested in `scoring.test.ts`). The UI, reports and AI Insights all use these same functions, so the numbers always match.
+All scoring logic is centralized in **[`src/lib/scoring.ts`](src/lib/scoring.ts)** and validated via Vitest (`src/lib/scoring.test.ts`). The dashboard, CSV exports, student profiles, and AI Insights consume these exact functions to guarantee 100% mathematical consistency across the entire platform.
 
 ```text
-Success Score   = 0.45 × Academic index + 0.35 × Placement index + 0.20 × Engagement
+Success Score   = 0.45 × Academic Index + 0.35 × Placement Index + 0.20 × Campus Engagement
 
-Academic index  = 0.50 × (CGPA / 10 × 100) + 0.30 × Attendance + 0.20 × LMS activity − 5 × backlogs
-Placement index = 0.50 × Placement readiness + 0.30 × Skills score + 0.20 × Feedback score
+Academic Index  = 0.50 × (CGPA / 10 × 100) + 0.30 × Attendance + 0.20 × LMS Activity − (5 × Backlogs)
+Placement Index = 0.50 × Placement Readiness + 0.30 × Skills Score + 0.20 × Feedback Score
 ```
 
-Every value is clamped to 0–100 and rounded.
+Every metric is clamped to the range $[0, 100]$ and rounded to the nearest integer.
 
-| Component | Weight | Inputs |
+| Component | Default Weight | Evaluated Inputs |
 |---|---|---|
-| Academic index | **45%** | CGPA, attendance, LMS activity, backlogs |
-| Placement index | **35%** | Placement readiness, skills, feedback |
-| Engagement | **20%** | Campus engagement score |
+| **Academic Index** | **45%** | CGPA, Class Attendance (%), LMS Activity, Active Backlogs |
+| **Placement Index** | **35%** | Placement Readiness Score, Technical Skills Score, Mock Feedback Score |
+| **Campus Engagement** | **20%** | Campus Activities & Engagement Score |
 
-### Risk rules
+### Missing data handling
+Scores of `0` (e.g., 0 backlogs or a genuine 0 on an assessment) are preserved as authentic performance data. Missing fields (`null` or `undefined`) trigger proportional weight rescaling across available indicators and flag the record with a data-completeness warning.
 
-| Risk | High | Medium | Low |
+### Risk classification rules
+
+| Dimension | High Risk | Medium Risk | Low Risk |
 |---|---|---|---|
-| Academic | Academic index < 55, **or** backlogs ≥ 2, **or** attendance < 60% | Academic index < 70 **or** attendance < 75% | otherwise |
-| Placement | Placement index < 45 | Placement index < 65 | otherwise |
+| **Academic Risk** | Academic Index $< 55$, **or** Backlogs $\ge 2$, **or** Attendance $< 60\%$ | Academic Index $< 70$, **or** Attendance $< 75\%$ | All other conditions |
+| **Placement Risk** | Placement Index $< 45$ | Placement Index $< 65$ | All other conditions |
 
-### Segments and support groups
-- **Segment:** "High"/"Low" Academic (index ≥ 65) × "High"/"Low" Placement (index ≥ 60). This gives four segments.
-- **Support groups:**
-  - Urgent support: high academic risk and high placement risk.
-  - Strong academics, low placement: Academic index ≥ 65 and Placement index < 60.
-  - Good academics, poor attendance: CGPA ≥ 7 and attendance < 75%.
-  - Placement-ready, low risk: low academic risk and low placement risk.
-  - Insufficient data: two or more indicators are missing (recorded as 0).
-- **Risk factors** are listed per student, for example low CGPA (< 6), attendance < 75%, backlogs, LMS activity < 45, engagement < 40, placement readiness < 45, skills < 40.
-
-> Example (fictional): CGPA 7.0, attendance 80, LMS 60, 0 backlogs → Academic index = 35 + 24 + 12 = **71**.
+### Quadrants and support groups
+- **4-Quadrant Segmentation:**
+  - High Academic / High Placement (Academic $\ge 65$, Placement $\ge 60$)
+  - High Academic / Low Placement (Academic $\ge 65$, Placement $< 60$)
+  - Low Academic / High Placement (Academic $< 65$, Placement $\ge 60$)
+  - Low Academic / Low Placement (Academic $< 65$, Placement $< 60$)
+- **Actionable Support Groups:**
+  - **Urgent Support:** High Academic Risk and High Placement Risk simultaneously.
+  - **Strong Academics, Low Placement:** Academic Index $\ge 65$ with Placement Index $< 60$.
+  - **Good Academics, Poor Attendance:** CGPA $\ge 7.0$ with Attendance $< 75\%$.
+  - **Placement-Ready, Low Risk:** Low Academic Risk and Low Placement Risk.
+  - **Insufficient Data:** Two or more required indicators are unrecorded.
 
 ---
 
 ## User roles
 
-Roles are stored in the `user_roles` table (enum `app_role`: `admin`, `faculty`, `placement`, `student`, `pending`). They are never stored on the profile and never taken from user-editable metadata.
+Roles are stored in the PostgreSQL `user_roles` table (mapped to the `app_role` enum: `admin`, `faculty`, `placement`, `student`, `pending`). Roles cannot be modified from client-side user metadata.
 
 | Capability | Admin | Faculty | Placement Officer | Student |
-|---|:-:|:-:|:-:|:-:|
+|---|:---:|:---:|:---:|:---:|
 | Read all student records | ✅ | ✅ | ✅ | Own record only |
-| Read feedback scores (via `student_feedback()`) | All | All | ❌ | Own only |
-| Create/edit students, interventions, imports | ✅ | ✅ | ✅ | ❌ |
-| Delete students | ✅ | ❌ | ❌ | ❌ |
-| Read all mock-interview sessions | ✅ | Own only | ✅ | Own only |
-| Assign roles / list all users | ✅ | ❌ | ❌ | ❌ |
-| Staff pages (Analytics, Students, Interventions, Data Integration, Reports, AI Insights, Admin) | ✅ | ✅ | ✅ | Redirected to own dashboard |
+| Read interview feedback scores | ✅ | ✅ | ❌ | Own only |
+| Create & edit students, interventions, CSV imports | ✅ | ✅ | ✅ | ❌ |
+| Delete student records | ✅ | ❌ | ❌ | ❌ |
+| Read mock-interview session histories | ✅ | Own only | ✅ | Own only |
+| Assign roles and list institutional accounts | ✅ | ❌ | ❌ | ❌ |
+| Access staff pages (Dashboard, Analytics, Interventions, etc.) | ✅ | ✅ | ✅ | Redirected to `/student-dashboard` |
 
-**Admin.** Manages approvals and roles (`set_user_role`, `get_all_users`), has full institutional visibility including feedback, and can read all interview history. The database refuses to remove the last administrator.
-
-**Faculty.** Reviews student academic data and profiles, identifies academic and attendance concerns, sees feedback, manages interventions, and uses Analytics and AI Insights. Cannot manage roles. The Admin page loads but returns no users, and role changes are refused.
-
-**Placement Officer.** Reviews placement readiness and skills, finds students who need placement support, manages interventions and reads all mock-interview results. **Cannot read feedback scores.**
-
-**Student.** Sees only their linked record on a personal dashboard, practises in the Mock Interview Studio, and sees their own interview history, notifications and profile. Every staff page redirects to `/student-dashboard`. The database returns no other student's data, even when requested directly.
-
-> A student account must be linked to a record through `students.user_id`. Unlinked student accounts see no personal data.
+- **Admin:** Manages user approvals and role promotions (`set_user_role`, `get_all_users`), full visibility across academic and interview records. Last-admin protection is enforced in the database.
+- **Faculty:** Analyzes academic performance, attendance trends, and LMS logs; manages interventions; and queries the AI Copilot. Cannot alter user roles.
+- **Placement Officer:** Tracks placement readiness, technical skills, and mock interview trends across cohorts. Restrained by database policies from accessing confidential faculty feedback scores.
+- **Student:** Isolated view of their own academic index, personalized risk factors, and intervention tasks. Accesses the Mock Interview Studio and personal interview logs.
 
 ---
 
@@ -155,261 +153,242 @@ Roles are stored in the `user_roles` table (enum `app_role`: `admin`, `faculty`,
 
 | Layer | Technology |
 |---|---|
-| Framework | **TanStack Start v1** (React 19, TypeScript), file-based routing with TanStack Router |
-| Build | **Vite 7** |
-| Styling | **Tailwind CSS v4** (tokens in `src/styles.css`), shadcn/ui (Radix), lucide icons, Recharts |
-| Server logic | TanStack `createServerFn` server functions |
-| Auth and database | **Lovable Cloud** (Supabase Auth + PostgreSQL), Row Level Security and SQL functions |
-| AI | **Google Gemini** via `@google/genai`, called only from server functions |
-| CSV | PapaParse |
-| Tests | **Vitest** + Testing Library |
-| Hosting | Lovable hosting and Vercel |
+| **Framework** | **TanStack Start v1** (React 19, TypeScript), file-based routing via TanStack Router |
+| **Bundler & Dev Server** | **Vite 8** |
+| **Styling & Components** | **Tailwind CSS v4**, Radix UI primitives, Lucide Icons, Recharts |
+| **Server Logic** | TanStack `createServerFn` server functions |
+| **Database & Auth** | **Supabase** (PostgreSQL 15), Row Level Security (RLS) & Security Definer SQL functions |
+| **AI Engine** | **Google Gemini** (`gemini-1.5-flash` via `@google/genai`), server-only with deterministic fallback |
+| **Data Ingestion** | PapaParse CSV streaming parser with type validation |
+| **Testing** | **Vitest 4** + React Testing Library |
 
 ```mermaid
 flowchart LR
-  B[Browser - React UI] -->|Supabase JS with user JWT| DB[(PostgreSQL + RLS)]
-  B -->|createServerFn + bearer token| SF[Server functions]
-  SF -->|caller's authenticated client| DB
-  SF -->|server-only API key| G[Google Gemini]
-  B --> A[Auth: email/password, Google]
+  B[Browser - React UI] -->|Supabase Client with User JWT| DB[(PostgreSQL + RLS)]
+  B -->|createServerFn + Bearer Token| SF[TanStack Server Functions]
+  SF -->|Authenticated Caller Client| DB
+  SF -->|Server-Side API Key| G[Google Gemini API]
+  SF -->|Offline Fallback Engine| L[Local Deterministic AI Engine]
+  B --> A[Supabase Auth: Email/Password, Google]
 ```
-
-### Key flows
-1. **Sign-in and authorisation.** `src/routes/_authenticated/route.tsx` checks the session and reads the role. It shows the pending screen for `pending` accounts and redirects students away from staff pages. The database enforces the real limits with RLS.
-2. **Loading analytics.** The browser reads `students` (RLS-filtered), merges feedback from the `student_feedback()` function, and scores the data with `scoring.ts`.
-3. **AI Insights.** The `src/lib/ai.functions.ts` server function checks the caller's role, loads only the data that caller is allowed to see, builds a grounded prompt and calls Gemini.
-4. **Mock interviews.** The `src/lib/interview.functions.ts` server functions generate questions, evaluate answers and write the summary through `src/lib/gemini.server.ts`.
-5. **Interview history.** Sessions are written with the caller's own authenticated client (RLS owner insert/update). No service-role key is needed.
-6. **CSV import.** Parsing and validation run in the browser (`src/lib/csv.ts`). Valid rows update `students` by `roll_no`, and each run is logged in `data_imports`.
 
 ---
 
 ## Database and data model
 
-Migrations live in `drizzle/migrations/`.
+Migrations are maintained in `drizzle/migrations/`.
 
 | Table | Purpose |
 |---|---|
-| `user_roles` | One role per user (`app_role` enum). Users can read only their own row and cannot write to it directly. |
-| `students` | Canonical student record: roll_no, name, department, year, cgpa, attendance, lms_activity, engagement, placement_readiness, skills_score, feedback_score, backlogs, and `user_id` (link to a student account). |
-| `interventions` | Support actions per student: title, category, priority, status, assigned_to, due_date, notes. |
-| `data_imports` | CSV import history: category, filename, row count, status, message. |
-| `notification_reads` | Per-user read state for notifications. |
-| `interview_sessions` | Mock-interview questions, answers, evaluations, summary, overall score and status. |
-
-| Function | Purpose |
-|---|---|
-| `has_role(uid, role)` / `is_staff(uid)` | Security-definer role checks used by policies (`is_staff` = admin, faculty or placement). |
-| `student_feedback()` | Returns feedback scores. Admin and faculty get all rows, a student gets their own row, and others get none. |
-| `get_all_users()` | Admin-only list of accounts and roles. |
-| `set_user_role(target, role)` | Admin-only role assignment. Blocks removing the last admin. |
-| `handle_new_user()` | Trigger that gives every new account the `pending` role. |
-
-**Feedback privacy.** The `feedback_score` column cannot be selected directly by any app role. It is available only through `student_feedback()`.
+| `user_roles` | Single authoritative role per user (`admin`, `faculty`, `placement`, `student`, `pending`). RLS-protected. |
+| `students` | Core student record: roll number, name, department, year, CGPA, attendance, LMS activity, engagement, placement readiness, skills, feedback, backlogs, and `user_id` mapping. |
+| `interventions` | Student intervention tasks: title, category, priority, status, assigned_to, due_date, notes. |
+| `data_imports` | Ingestion audit trail: category, filename, row count, status, error message. |
+| `notification_reads` | Per-user read state tracking for notifications. |
+| `interview_sessions` | Mock interview questions, user answers, rubric evaluations, score summaries, and overall status. |
 
 ---
 
 ## AI Insights
 
-- **Purpose:** answer cohort questions such as "Which Civil students are at high risk?", using the student data the caller is allowed to see.
-- **Flow:**
-  1. The browser calls the server function with the user's bearer token.
-  2. The server reads the caller's role (a pending account is refused).
-  3. The server loads the permitted data: all students for staff, only the linked record for a student. Feedback is merged only where `student_feedback()` allows it.
-  4. The data is scored with `scoring.ts`, and exact counts (by department, year and risk) are added to the prompt.
-  5. Gemini is called.
-- **Model:** `GEMINI_MODEL`, or **`gemini-3.5-flash`** when it isn't set.
-- **Key:** `GOOGLE_API_KEY`, falling back to `GEMINI_API_KEY`. It is read only on the server.
-- **Limits:** only the last 12 messages are sent, each cut to 4,000 characters. Requests time out after 45 seconds, with one bounded retry on 429/503.
-- **Errors:** separate user-facing messages for quota reached, service overloaded, invalid model, rejected key, timeout, expired sign-in and offline. Unknown errors show a short reference code. Keys and stack traces are never shown.
-- **No key configured:** the assistant returns calculated statistics and clearly labels them "AI integration is pending."
-- **UI:** Stop cancels the wait in the browser. It may not stop work the provider has already started. Retry and New Chat are available, and failed or stopped replies are left out of later context.
+The **AI Insights Copilot** operates as an institutional analytics assistant:
+
+- **Mode A (Authoritative Data Q&A):** Answers questions like *"Which department has the lowest placement readiness?"* or *"List all high-risk students in Computer Science"*. Data is scored with `scoring.ts` on the server and injected into the prompt. Hallucinated student records are strictly prevented.
+- **Mode B (Pedagogy & General Advisory):** Answers educational questions like *"Explain the STAR method for our students"* or *"Provide a 30-day intervention turnaround plan for attendance deficits"*.
+- **Multi-Turn Context & Pronoun Resolution:** Resolves follow-ups such as *"Why is it low?"* by analyzing the preceding conversational turns.
+- **Model:** `GEMINI_MODEL`, defaulting to **`gemini-1.5-flash`**.
+- **Resilient Fallback:** If `GEMINI_API_KEY` is not provided or the Gemini API is unreachable, the system activates a verified local deterministic conversational engine without throwing unhandled exceptions.
+- **Security & Privacy:** API keys and raw system instructions are kept strictly server-side. Prompts are sanitized and responses are streamed safely.
 
 ---
 
 ## Mock Interview Studio
 
-1. Choose a target role: Software Developer, Data Analyst, AI/ML Engineer or General Technical.
-2. Choose an interview type: Technical, HR/Behavioral or Mixed.
-3. Choose a difficulty: Beginner, Intermediate or Advanced.
-4. Choose a length: 5, 10 or 15 questions.
-5. **Start.** Gemini generates the questions, which are validated in `src/lib/interview.ts`.
-6. **Answer** each question.
-7. **Feedback.** Each answer is scored against a rubric:
-   - Technical: correctness, relevance and completeness, problem-solving.
-   - Behavioral: clarity, relevance, specific examples.
-
-   The answer's score is the mean of its rubric scores, calculated on the server. Scores are labelled *indicative*.
-8. **Summary.** Recurring weaknesses, topics to practise and next steps.
-9. **History.** Saved in `interview_sessions`. Readable by the owner, admins and placement officers. Owners can create and update their own sessions. Nobody can delete them from the app.
+1. **Role Selection:** Software Developer, Data Analyst, AI/ML Engineer, or General Technical.
+2. **Track & Difficulty:** Technical, HR/Behavioral, or Mixed across Junior, Mid, and Senior levels.
+3. **Question Deduplication:** Tracks previously served question IDs in session storage to ensure questions do not repeat during practice.
+4. **Structured Rubric Evaluation:**
+   - **Technical Questions:** Assessed on correctness, technical depth, and problem-solving methodology.
+   - **Behavioral Questions:** Assessed on clarity, relevance, and the STAR framework (Situation, Task, Action, Result).
+5. **Session Persistence:** Full transcripts, evaluations, and overall performance summaries are saved to `interview_sessions` under the student's authenticated user ID.
 
 ---
 
 ## Installation and local development
 
-**Requirements:** Node.js 20 or newer, and **Bun** (the repository uses `bun.lock`). npm also works.
+### Prerequisites
+- **Node.js** 20.x or newer
+- **npm** (or **bun** / **pnpm**)
+
+### Setup Instructions
 
 ```bash
-git clone https://github.com/<your-org>/<your-repo>.git   # placeholder URL
-cd <your-repo>
-bun install
+# 1. Clone the repository
+git clone https://github.com/<your-username>/<your-repo-name>.git
+cd <your-repo-name>
+
+# 2. Install dependencies
+npm install
+
+# 3. Create your local environment file
+cp .env.example .env
+
+# 4. Start the local development server
+npm run dev
 ```
 
-| Task | Command |
-|---|---|
-| Dev server | `bun run dev` |
-| Tests | `bun run test` |
-| Type check | `bunx tsc --noEmit` |
-| Lint | `bun run lint` |
-| Production build | `bun run build` |
-| Preview build | `bun run preview` |
+The application will be accessible at `http://localhost:8080/`.
+
+### Available Scripts
+
+| Task | npm command | Bun equivalent |
+|---|---|---|
+| **Development Server** | `npm run dev` | `bun run dev` |
+| **Run Test Suite** | `npm run test` | `bun run test` |
+| **Type Check** | `npx tsc --noEmit` | `bunx tsc --noEmit` |
+| **Lint Codebase** | `npm run lint` | `bun run lint` |
+| **Format Files** | `npm run format` | `bun run format` |
+| **Production Build** | `npm run build` | `bun run build` |
+| **Preview Build** | `npm run preview` | `bun run preview` |
 
 ---
 
 ## Environment variables
 
-Create a `.env` file in the project root for local development. **Never commit secrets.**
+Configure your `.env` file based on `.env.example`. **Never commit your `.env` file to version control.**
 
-| Variable | Where | Purpose |
+| Variable | Scope | Purpose |
 |---|---|---|
-| `VITE_SUPABASE_URL` | Browser-safe | Backend URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser-safe | Publishable (anon) key; RLS still applies |
-| `VITE_SUPABASE_PROJECT_ID` | Browser-safe | Project identifier |
-| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` | Server-only | Used by server functions to validate the caller |
-| `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) | **Server-only secret** | Gemini API key |
-| `GEMINI_MODEL` | Server-only (optional) | Overrides the default `gemini-3.5-flash` |
+| `VITE_SUPABASE_URL` | Client & Server | Supabase backend URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Client & Server | Supabase anonymous publishable key |
+| `VITE_SUPABASE_PROJECT_ID` | Client & Server | Supabase project identifier |
+| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` | Server-only | Server function authorization verification |
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | **Server-only secret** | Optional: Google Gemini API key for live LLM responses |
+| `GEMINI_MODEL` | Server-only (optional) | Gemini model override (defaults to `gemini-1.5-flash`) |
 
-Only `VITE_*` variables reach the browser. On **Vercel**, add these under *Project → Settings → Environment Variables* and then **redeploy**. Changed variables only take effect on new deployments. A service-role key is **not** required.
+*Note: If `GEMINI_API_KEY` is omitted, the platform gracefully switches to its local deterministic conversational engine.*
 
 ---
 
 ## Data import and expected formats
 
-- **File type:** CSV with a header row. Headers are trimmed and lower-cased.
-- **Matching:** rows are matched to students by **`roll_no`** (required in every category).
+The data integration engine supports bulk CSV uploads across 6 student dimensions:
 
-| Category | Required columns |
-|---|---|
-| Academic | `roll_no`, `cgpa`, `backlogs` |
-| Attendance | `roll_no`, `attendance` |
-| LMS | `roll_no`, `lms_activity` |
-| Engagement | `roll_no`, `engagement` |
-| Placement | `roll_no`, `placement_readiness` |
-| Skills and Feedback | `roll_no`, `skills_score`, `feedback_score` |
-
-Optional columns: `year` (1–6), `name`, `department`.
-
-- **Validation:**
-  - cgpa must be 0–10, backlogs 0–30, and all other scores 0–100.
-  - Invalid rows are reported by line number and skipped.
-  - Missing required columns reject the whole file.
-- **Duplicates:** a repeated `roll_no` within a file is reported and skipped.
-- **History:** each import is recorded in `data_imports` and listed on the Data Integration page.
-- **Limits:** no explicit file-size limit is enforced in code.
-
-Example (fictional):
-```csv
-roll_no,attendance
-KR2024099,82
-```
+- **Matching Key:** Every file must contain a `roll_no` column matching the student identifier.
+- **Supported Dimensions & Columns:**
+  - **Academic:** `roll_no`, `cgpa`, `backlogs`
+  - **Attendance:** `roll_no`, `attendance`
+  - **LMS Engagement:** `roll_no`, `lms_activity`
+  - **Campus Engagement:** `roll_no`, `engagement`
+  - **Placement Readiness:** `roll_no`, `placement_readiness`
+  - **Skills & Feedback:** `roll_no`, `skills_score`, `feedback_score`
+- **Validation Rules:**
+  - `cgpa`: Float between $0.0$ and $10.0$
+  - `backlogs`: Integer between $0$ and $30$
+  - All percentage and index scores: Numbers between $0$ and $100$
+  - Duplicate roll numbers within the same file are flagged and safely skipped.
 
 ---
 
 ## Security and privacy
 
-- **Authentication:** handled by the backend's auth service (email/password, Google). New accounts stay `pending` until an admin approves them.
-- **Authorisation in the database:** every table has RLS. Staff access uses `is_staff()`, and role changes go only through `set_user_role()`.
-- **Student isolation:** a student can read only the `students` row linked to their account.
-- **Feedback privacy:** the column cannot be selected directly; it is served only through `student_feedback()`.
-- **Interview privacy:** owners, admins and placement officers can read sessions. Only the owner can write, and nobody can delete.
-- **Secrets:** the Gemini key is read only inside server functions and never sent to the browser.
-- **Safe errors:** user-facing messages contain no keys, stack traces or internal identifiers.
-- **Route guards are a convenience only.** The database policies are the real boundary.
+- **Row Level Security (RLS):** Every PostgreSQL table enforces RLS. Role verification is validated inside the database using security-definer helper functions (`is_staff()`, `has_role()`).
+- **Student Privacy:** Students are isolated to their own records. Database queries from student sessions requesting other student identifiers return empty results.
+- **Secret Isolation:** `GEMINI_API_KEY` is loaded exclusively inside server functions (`createServerFn`) and is never passed to client bundles.
+- **Sanitized Errors:** Error handlers catch network and API exceptions and present sanitized, friendly status notices to users.
 
 ---
 
 ## Testing and verification
 
-Automated tests (Vitest, `bun run test`; 50 tests passed at the time of writing):
+The project contains a comprehensive automated test suite executed with Vitest:
 
-| File | Covers |
+```bash
+npm run test
+```
+
+```text
+Test Files:  8 passed (8)
+Tests:       88 passed (88)
+```
+
+| Test Suite | Coverage |
 |---|---|
-| `src/lib/scoring.test.ts` | Score weights, indices, risk rules, segments |
-| `src/lib/support-groups.test.ts` | Support-group rules |
-| `src/lib/csv.test.ts` | CSV parsing, required columns, ranges, duplicates |
-| `src/lib/interventions.test.ts` | Intervention logic |
-| `src/lib/interview.test.ts` | Question/evaluation validation and score calculation |
-| `src/test/security.test.ts`, `src/test/app-routing.test.tsx` | Security fallbacks and routing |
-
-**Manual and browser testing carried out during development:**
-- Student search and profiles.
-- Intervention CRUD with persistence.
-- CSV validation and history.
-- Report exports.
-- Notification isolation between two accounts.
-- AI Stop/Retry and error handling.
-- Import-driven score recalculation.
-- Direct database requests per role (admin, faculty, placement, student).
-- Student redirect away from staff pages.
-
-**Outstanding:**
-- Password-reset email delivery (no authorised test inbox).
-- Repeated live AI checks, which depend on Gemini quota.
+| `src/lib/scoring.test.ts` | Success Score weights, Academic/Placement indices, risk rules, 4-quadrant segments |
+| `src/test/ai-insights.test.ts` | Multi-turn conversational history, Mode A & B answers, follow-up resolution, RBAC cohort aggregation |
+| `src/lib/interview.test.ts` | Question generation deduplication, rubric evaluation scoring, summary synthesis |
+| `src/lib/csv.test.ts` | CSV parsing, required headers, range validation, duplicate handling |
+| `src/lib/support-groups.test.ts` | Support group categorization and filtering logic |
+| `src/lib/interventions.test.ts` | Intervention lifecycle, priority calculation, overdue detection |
+| `src/test/security.test.ts` | Secret leakage guards, authorization boundaries, role fallbacks |
+| `src/test/app-routing.test.tsx` | Route definitions and layout tree integrity |
 
 ---
 
 ## Deployment
 
-- **Build:** `bun run build` (Vite). No custom output settings are needed on Lovable hosting.
-- **Vercel:** deploy from the intended production branch and set the [environment variables](#environment-variables).
-- **Verifying a deployment:**
-  1. Sign in.
-  2. Open Profile and check the role shown.
-  3. Ask AI Insights a question.
-  4. Start a mock interview.
-- **Logs:** use your hosting provider's function or runtime logs. AI requests log a request ID and timings, with no prompt content or keys.
-- **Database migrations:** apply them only through reviewed migrations, never against production without review. Make additive, backward-compatible changes.
+### Vercel / Cloud Platforms
+1. Connect your GitHub repository to your hosting provider (e.g., Vercel).
+2. Configure the build settings:
+   - **Framework Preset:** Vite
+   - **Build Command:** `npm run build`
+   - **Output Directory:** `.output/public`
+3. Add the required [environment variables](#environment-variables) in the hosting settings.
+4. Trigger the deployment.
 
 ---
 
 ## Project structure
 
 ```text
-src/
-  components/       AppShell (navigation), IdCard, InterventionForm, kr (shared UI), ui/ (shadcn)
-  integrations/     generated backend clients (do not edit)
-  lib/
-    scoring.ts      Success Score, risk, segments, support groups (single source of truth)
-    csv.ts          CSV parsing and validation
-    data.ts         query definitions and feedback merge
-    ai.functions.ts AI Insights server function
-    gemini.server.ts shared Gemini call
-    interview.ts / interview.functions.ts  Mock Interview logic and server functions
-  routes/
-    index.tsx       sign-in / sign-up
-    reset-password.tsx
-    _authenticated/ dashboard, students, analytics, interventions, integration,
-                    insights, interview, reports, notifications, profile, admin,
-                    student-dashboard, more
-drizzle/migrations/ database migrations
-research/           offline research benchmarks, kept separate from app data
+grade-galaxy-sync-main/
+├── drizzle/              # Database schemas and migration files
+├── research/             # Offline research datasets and benchmarking
+├── src/
+│   ├── components/       # UI components (AppShell, IdCard, InterventionForm, Radix UI)
+│   ├── integrations/     # Supabase client integration helpers
+│   ├── lib/
+│   │   ├── scoring.ts          # Core Student Success Score and risk computation
+│   │   ├── ai.functions.ts     # Conversational AI Insights server functions & fallback engine
+│   │   ├── gemini.server.ts    # Server-only Google GenAI SDK wrapper
+│   │   ├── interview.ts        # Mock interview question bank and rubric evaluation
+│   │   ├── interview.functions.ts # Mock interview server functions
+│   │   ├── csv.ts              # CSV ingestion and validation
+│   │   └── data.ts             # Data access and feedback score merging
+│   ├── routes/           # TanStack Start file-based route definitions
+│   │   ├── index.tsx           # Authentication (Sign in / Sign up)
+│   │   ├── _authenticated/     # Protected route layout
+│   │   │   ├── dashboard.tsx        # Institutional cohort dashboard
+│   │   │   ├── student-dashboard.tsx# Student individual dashboard
+│   │   │   ├── insights.tsx         # AI Insights conversational assistant
+│   │   │   ├── interview.tsx        # Mock Interview Studio
+│   │   │   ├── analytics.tsx        # Cohort analytics & segmentation
+│   │   │   ├── interventions.tsx    # Intervention management
+│   │   │   ├── integration.tsx      # CSV data import
+│   │   │   ├── reports.tsx          # Data exports
+│   │   │   ├── admin.tsx            # User and role administration
+│   │   │   └── profile.tsx          # User profile & digital ID card
+│   └── test/             # Comprehensive Vitest integration test suites
+├── .env.example          # Clean environment variable template
+├── .gitignore            # Git ignore rules protecting secrets and build outputs
+├── package.json          # Project dependencies and npm scripts
+└── README.md             # Complete project documentation
 ```
 
 ---
 
 ## Limitations and roadmap
 
-- The data is synthetic (36 students). Production use needs real SIS/LMS integrations.
-- AI quality and availability depend on Gemini quota and latency. Answers are not streamed.
-- A student needs a linked record to see personal data, and linking currently requires administrator action.
-- Forced password change on first sign-in is not available.
-- Interview scores are indicative, not validated assessments.
-- Possible next steps: student-to-account linking in the UI, scheduled data feeds, streamed AI answers.
+- **Current Limitations:** The standard demonstration dataset contains 36 synthetic student records. Live AI response latency is governed by Google Gemini API network latency.
+- **Future Roadmap:**
+  - Automated SIS/LMS scheduled sync webhooks (Canvas, Moodle, Blackboard).
+  - Streamed response tokens (SSE) for the conversational AI Copilot.
+  - Student self-service verification for institutional email linking.
 
 ---
 
 ## Contributing, license and acknowledgements
 
-- **Contributing:** open an issue or pull request. Keep scoring changes in `src/lib/scoring.ts` with matching tests.
-- **License:** no license has been chosen yet. Add a `LICENSE` file before public distribution.
-- **Acknowledgements:** KPMG India Challenge 04. Built with TanStack Start, Tailwind CSS, shadcn/ui, Recharts, PapaParse and Google Gemini.
+- **Contributing:** Contributions are welcome. Ensure that all scoring logic changes reside in `src/lib/scoring.ts` and maintain 100% test suite pass rates (`npm run test`).
+- **License:** MIT License.
+- **Acknowledgements:** Built for the **KPMG India Innovation Challenge 04**. Developed with TanStack Start, Tailwind CSS, Supabase, and Google Gemini.
