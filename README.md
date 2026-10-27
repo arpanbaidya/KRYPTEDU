@@ -7,7 +7,7 @@ KRYPTEDU brings a student's academic performance, attendance, learning-platform 
 
 **KRYPTEDU — Live Demo Access**
 
-**Live Application:** https://kryptedu.vercel.app/
+**Live Application:** https://kryptedu-phi.vercel.app/
 Use the following credentials to evaluate the platform's role-based functionality.
 
 ### 1. Administrator
