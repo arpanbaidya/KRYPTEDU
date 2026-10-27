@@ -1,0 +1,180 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  Outlet,
+  Link,
+  createRootRouteWithContext,
+  useRouter,
+  HeadContent,
+  Scripts,
+  type ErrorComponentProps,
+} from "@tanstack/react-router";
+import { useEffect, type ReactNode } from "react";
+import { Toaster } from "@/components/ui/sonner";
+import { supabase } from "@/integrations/supabase/client";
+
+import appCss from "../styles.css?url";
+import { reportLovableError } from "../lib/lovable-error-reporting";
+
+function NotFoundComponent() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="max-w-md text-center">
+        <h1 className="text-7xl font-bold text-foreground">404</h1>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          The page you're looking for doesn't exist or has been moved.
+        </p>
+        <div className="mt-6">
+          <Link
+            to="/"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Go home
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ErrorComponent({ error, reset }: ErrorComponentProps) {
+  console.error(error);
+  const router = useRouter();
+  useEffect(() => {
+    reportLovableError(error, { boundary: "tanstack_root_error_component" });
+  }, [error]);
+  // A stale page after a redeploy can't fetch its old code chunks; reload to
+  // fetch fresh HTML. Retry up to 3 times in case the first reload is also cached.
+  useEffect(() => {
+    const msg = String((error as Error)?.message ?? "");
+    if (!/dynamically imported module|Importing a module script failed|Failed to fetch/i.test(msg)) return;
+    const attempts = Number(sessionStorage.getItem("kr-chunk-reload") ?? "0");
+    if (attempts >= 3) return;
+    sessionStorage.setItem("kr-chunk-reload", String(attempts + 1));
+    window.location.reload();
+  }, [error]);
+  useEffect(() => {
+    const t = setTimeout(() => sessionStorage.removeItem("kr-chunk-reload"), 30000);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="max-w-md text-center">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">
+          This page didn't load
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Something went wrong on our end. You can try refreshing or head back home.
+        </p>
+        <p className="mt-3 break-words rounded-lg bg-secondary px-3 py-2 text-left font-mono text-[11px] text-muted-foreground">
+          Error details: {String((error as Error)?.message || error).slice(0, 240)}
+          {(() => {
+            // Code location only (bundle file + position) so a crash can be traced; no data or secrets.
+            const m = String((error as Error)?.stack ?? "").match(/\/assets\/([\w.-]+\.js):(\d+):(\d+)/);
+            return m ? ` · at ${m[1]}:${m[2]}:${m[3]}` : "";
+          })()}
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <button
+            onClick={() => {
+              router.invalidate();
+              reset();
+            }}
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Try again
+          </button>
+          <a
+            href="/"
+            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            Go home
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  head: () => ({
+    meta: [
+      { charSet: "utf-8" },
+      { name: "google", content: "notranslate" },
+      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { title: "KRYPTEDU — Smart Campus Analytics" },
+      { name: "description", content: "Understand. Predict. Improve Student Success." },
+      { property: "og:site_name", content: "KRYPTEDU" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+    links: [
+      {
+        rel: "stylesheet",
+        href: appCss,
+      },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" },
+    ],
+  }),
+  shellComponent: RootShell,
+  component: RootComponent,
+  notFoundComponent: NotFoundComponent,
+  errorComponent: ErrorComponent,
+});
+
+function RootShell({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en" translate="no">
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        {children}
+        <Scripts />
+      </body>
+    </html>
+  );
+}
+
+function RootComponent() {
+  const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
+      router.invalidate();
+      if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
+      else queryClient.clear();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [router, queryClient]);
+
+  // Chunk-load failures that happen outside the error boundary (e.g. lazy route
+  // loads during navigation) surface as unhandled rejections; reload for fresh code.
+  useEffect(() => {
+    const isChunkError = (msg: string) =>
+      /dynamically imported module|Importing a module script failed|Failed to fetch/i.test(msg);
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const msg = String((e.reason as Error)?.message ?? e.reason ?? "");
+      if (!isChunkError(msg)) return;
+      const attempts = Number(sessionStorage.getItem("kr-chunk-reload") ?? "0");
+      if (attempts >= 3) return;
+      sessionStorage.setItem("kr-chunk-reload", String(attempts + 1));
+      window.location.reload();
+    };
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => window.removeEventListener("unhandledrejection", onRejection);
+  }, []);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+      <Outlet />
+      <Toaster position="top-center" />
+    </QueryClientProvider>
+  );
+}
