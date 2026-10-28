@@ -5,6 +5,39 @@
 
 KRYPTEDU brings a student's academic performance, attendance, learning-platform (LMS) activity, campus engagement, and placement preparation into one unified, intelligent platform. It calculates an explainable Student Success Score, flags academic and placement risks with root-cause feature attributions, segments cohorts into actionable quadrants, tracks support interventions, and provides two enterprise-grade AI capabilities: a conversational **AI Insights Copilot** and an interactive **Mock Interview Studio**.
 
+**KRYPTEDU — Live Demo Access**
+
+**Live Application:** https://kryptedu-phi.vercel.app/
+Use the following credentials to evaluate the platform's role-based functionality.
+
+### 1. Administrator
+- **Login ID:** `demo.admin@kryptedu-demo.example`
+- **Password:** `Kr-WIKaUGw0J5uDci!9`
+- **Access:** Dashboard, student analytics, segmentation, interventions, data integration, reports, and user management.
+
+### 2. Faculty
+- **Login ID:** `demo.faculty@kryptedu-demo.example`
+- **Password:** `Kr-DaOhIaeasIkQWO!9`
+- **Access:** Student records, academic indicators, and authorized student-support workflows.
+
+### 3. Placement Officer
+- **Login ID:** `demo.placement@kryptedu-demo.example`
+- **Password:** `Kr-iMIpR2o3Um6z9C!9`
+- **Access:** Placement readiness, relevant interventions, and Mock Interview Studio.
+
+### 4. Student
+- **Login ID:** `demo.student@kryptedu-demo.example`
+- **Password:** `Kr-IsSiT3hhKgCblU!9`
+- **Access:** Personal student information and Mock Interview Studio.
+
+### Suggested Evaluation Workflow
+1. Sign in using each role's credentials.
+2. Explore the features available to that role.
+3. Test AI Insights and Mock Interview Studio.
+4. Verify that users cannot access information or actions outside their permissions.
+
+These are evaluation accounts. Please use them only for assessing KRYPTEDU and do not change account roles or credentials during evaluation.
+
 ---
 
 ## Table of contents
