@@ -59,8 +59,9 @@ const riskStyle: Record<Risk, string> = {
   High: "bg-primary text-primary-foreground border-primary",
   Medium: "bg-surface-2 text-foreground border-border",
   Low: "bg-background text-muted-foreground border-border",
+  "Insufficient Data": "bg-surface-2 text-muted-foreground border-border",
 };
-const riskMark: Record<Risk, string> = { High: "●", Medium: "◐", Low: "○" };
+const riskMark: Record<Risk, string> = { High: "●", Medium: "◐", Low: "○", "Insufficient Data": "—" };
 
 export function RiskBadge({ risk, label }: { risk: Risk; label?: string }) {
   return (

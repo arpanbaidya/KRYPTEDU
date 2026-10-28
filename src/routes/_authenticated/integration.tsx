@@ -6,6 +6,8 @@ import { Activity, BookOpen, CalendarCheck, GraduationCap, Briefcase, Star, Uplo
 import { supabase } from "@/integrations/supabase/client";
 import { importsQuery, studentsQuery } from "@/lib/data";
 import { CATEGORIES, parseCsv, validate, type Category } from "@/lib/csv";
+import { getAuthoritativeAcademicsCgpaMap } from "@/lib/academics";
+import { getAuthoritativeDemoAttendanceMap } from "@/lib/attendance";
 import { Card, PageHeader, SectionTitle } from "@/components/kr";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -41,20 +43,70 @@ function Integration() {
     setResult(null);
     const { headers, rows } = parseCsv(await file.text());
     const { valid, errors, skippedEmptyCells } = validate(cat, headers, rows);
-    const known = new Map(students.map((s) => [s.roll_no, s.id]));
+    const known = new Map(students.map((s) => [s.roll_no.toUpperCase(), s.id]));
+    const authoritativeCgpaMap = getAuthoritativeAcademicsCgpaMap();
+    const authoritativeAttendanceMap = getAuthoritativeDemoAttendanceMap();
+    let reconciledCount = 0;
+    let reconciledAttCount = 0;
     let ok = 0;
+
+    // Check for duplicate student identifiers in the imported file
+    const seenRollNos = new Set<string>();
+    const duplicateRollNos: string[] = [];
+    for (const r of valid) {
+      const rNo = String(r.roll_no).trim().toUpperCase();
+      if (seenRollNos.has(rNo)) {
+        duplicateRollNos.push(rNo);
+      } else {
+        seenRollNos.add(rNo);
+      }
+    }
+    if (duplicateRollNos.length > 0) {
+      errors.push(`Duplicate student identifier(s) in import file: ${[...new Set(duplicateRollNos)].join(", ")}`);
+    }
+
     const batchSize = 50;
     for (let i = 0; i < valid.length; i += batchSize) {
       const batch = valid.slice(i, i + batchSize);
       await Promise.all(
         batch.map(async (row) => {
           const { roll_no, ...fields } = row;
-          if (known.has(String(roll_no))) {
-            const { error } = await supabase.from("students").update({ ...fields, updated_at: new Date().toISOString() }).eq("roll_no", String(roll_no));
-            if (error) errors.push(`${roll_no}: ${error.message}`); else ok++;
+          const cleanRoll = String(roll_no).trim().toUpperCase();
+          const updateFields: Record<string, any> = { ...fields };
+
+          // Authoritative Academics CGPA Protection:
+          // Once Academics results are published, Academics CGPA strictly takes precedence
+          if (cat === "Academic" && "cgpa" in updateFields) {
+            const authCgpa = authoritativeCgpaMap[cleanRoll] ?? authoritativeCgpaMap[String(roll_no)];
+            if (authCgpa !== undefined && authCgpa !== null) {
+              updateFields.cgpa = authCgpa;
+              reconciledCount++;
+            }
+          }
+
+          // Authoritative Attendance Protection:
+          // Published attendance records strictly take precedence over stale imported percentages
+          if (cat === "Attendance" && "attendance" in updateFields) {
+            const authAtt = authoritativeAttendanceMap[cleanRoll] ?? authoritativeAttendanceMap[String(roll_no)];
+            if (authAtt !== undefined && authAtt !== null) {
+              updateFields.attendance = authAtt;
+              reconciledAttCount++;
+            }
+          }
+
+          if (known.has(cleanRoll)) {
+            const { error } = await supabase
+              .from("students")
+              .update({ ...updateFields, updated_at: new Date().toISOString() })
+              .eq("roll_no", cleanRoll);
+            if (error) errors.push(`${roll_no}: ${error.message}`);
+            else ok++;
           } else if (fields["name"] && fields["department"]) {
-            const { error } = await supabase.from("students").insert({ roll_no: String(roll_no), ...fields } as never);
-            if (error) errors.push(`${roll_no}: ${error.message}`); else ok++;
+            const { error } = await supabase
+              .from("students")
+              .insert({ roll_no: cleanRoll, ...updateFields } as never);
+            if (error) errors.push(`${roll_no}: ${error.message}`);
+            else ok++;
           } else {
             errors.push(`${roll_no}: unknown roll number (add name and department columns to create new students)`);
           }

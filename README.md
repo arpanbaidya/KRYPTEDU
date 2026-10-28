@@ -60,6 +60,7 @@ Administrators, faculty members, placement officers, and students. Every role is
 | Real-time notifications with per-user read/unread state persistence | Implemented |
 | Conversational AI Insights Copilot | Implemented; multi-turn context retention, Mode A (grounded analytics) & Mode B (pedagogy), with verified local fallback engine |
 | Mock Interview Studio | Implemented; role-tailored (4 roles × 3 difficulty levels), question deduplication, and rubric-based evaluations with session history |
+| Student Course Payments (Razorpay) | Implemented; official Razorpay Checkout, HMAC-SHA256 verification, 3 payment options, ledger audit, and print receipts |
 | Student Dashboard | Implemented; strict student data isolation linked to `students.user_id` |
 
 *The default demo dataset contains **36 synthetic student records** with zero personally identifiable information (PII).*
@@ -265,6 +266,9 @@ Configure your `.env` file based on `.env.example`. **Never commit your `.env` f
 | `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` | Server-only | Server function authorization verification |
 | `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | **Server-only secret** | Optional: Google Gemini API key for live LLM responses |
 | `GEMINI_MODEL` | Server-only (optional) | Gemini model override (defaults to `gemini-1.5-flash`) |
+| `RAZORPAY_KEY_ID` | Server & Client | Razorpay public Key ID (`rzp_test_...`) |
+| `RAZORPAY_KEY_SECRET` | **Server-only secret** | Razorpay secret for HMAC-SHA256 signature verification |
+| `RAZORPAY_WEBHOOK_SECRET` | **Server-only secret** | Optional webhook signature verification secret |
 
 *Note: If `GEMINI_API_KEY` is omitted, the platform gracefully switches to its local deterministic conversational engine.*
 
@@ -308,13 +312,14 @@ npm run test
 ```
 
 ```text
-Test Files:  8 passed (8)
-Tests:       88 passed (88)
+Test Files:  9 passed (9)
+Tests:       102 passed (102)
 ```
 
 | Test Suite | Coverage |
 |---|---|
 | `src/lib/scoring.test.ts` | Success Score weights, Academic/Placement indices, risk rules, 4-quadrant segments |
+| `src/test/payments.test.ts` | Balance math, Options A/B/C, Razorpay HMAC-SHA256 signatures, unverified rejection, idempotency |
 | `src/test/ai-insights.test.ts` | Multi-turn conversational history, Mode A & B answers, follow-up resolution, RBAC cohort aggregation |
 | `src/lib/interview.test.ts` | Question generation deduplication, rubric evaluation scoring, summary synthesis |
 | `src/lib/csv.test.ts` | CSV parsing, required headers, range validation, duplicate handling |

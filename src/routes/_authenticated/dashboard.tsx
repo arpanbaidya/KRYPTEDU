@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { ArrowUpRight, ArrowRight, Users, BarChart3, ClipboardCheck, Database, Bell, UserCircle } from "lucide-react";
+import { useMemo } from "react";
+import { ArrowUpRight, ArrowRight, Users, GraduationCap, ClipboardCheck, Database, Bell, UserCircle, CalendarCheck } from "lucide-react";
 import { Bar as RBar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell } from "recharts";
 import { studentsQuery, interventionsQuery, avg } from "@/lib/data";
 import { Card, RiskBadge, SectionTitle, Stat, StudentLink } from "@/components/kr";
@@ -17,38 +18,59 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 const tooltipStyle = { borderRadius: 12, border: "1px solid var(--color-border)", fontSize: 12 };
 const quickAccess = [
   { to: "/students", label: "Students", icon: Users },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
+  { to: "/attendance", label: "Attendance", icon: CalendarCheck },
+  { to: "/academics", label: "Academics", icon: GraduationCap },
   { to: "/interventions", label: "Interventions", icon: ClipboardCheck },
-  { to: "/integration", label: "Import data", icon: Database },
 ] as const;
 
 function Dashboard() {
   const { data: students } = useSuspenseQuery(studentsQuery);
   const { data: interventions } = useSuspenseQuery(interventionsQuery);
-  const acHigh = students.filter((s) => s.academicRisk === "High").length;
-  const plHigh = students.filter((s) => s.placementRisk === "High").length;
 
-  const bins = ["0-39", "40-49", "50-59", "60-69", "70-79", "80+"].map((b, i) => ({
-    bin: b,
-    count: students.filter((s) => {
-      const v = s.successScore;
-      // Bin 0: 0–39, Bins 1–4: 40–49, 50–59, 60–69, 70–79, Bin 5: 80+
-      if (i === 0) return v < 40;
-      if (i === 5) return v >= 80;
-      return v >= 40 + (i - 1) * 10 && v < 50 + (i - 1) * 10;
-    }).length,
-  }));
-  const depts = [...new Set(students.map((s) => s.department))].map((d) => {
-    const g = students.filter((s) => s.department === d);
-    return { dept: d.replace("Information Tech", "IT").replace("Computer Science", "CS"), score: avg(g.map((s) => s.successScore)) };
-  });
-  const priority = [...students]
-    .filter((s) => s.academicRisk === "High" || s.placementRisk === "High")
-    .sort((a, b) => a.successScore - b.successScore)
-    .slice(0, 5);
-  const open = interventions.filter((i) => i.status !== "Completed").length;
-  const bestDept = [...depts].sort((a, b) => b.score - a.score)[0];
-  const worstDept = [...depts].sort((a, b) => a.score - b.score)[0];
+  const { acHigh, plHigh, bins, depts, priority, open, bestDept, worstDept, cohortAvgScore } = useMemo(() => {
+    const ac = students.filter((s) => s.academicRisk === "High").length;
+    const pl = students.filter((s) => s.placementRisk === "High").length;
+
+    const b = ["0-39", "40-49", "50-59", "60-69", "70-79", "80+"].map((bin, i) => ({
+      bin,
+      count: students.filter((s) => {
+        const v = s.successScore;
+        if (i === 0) return v < 40;
+        if (i === 5) return v >= 80;
+        return v >= 40 + (i - 1) * 10 && v < 50 + (i - 1) * 10;
+      }).length,
+    }));
+
+    const d = [...new Set(students.map((s) => s.department))].map((deptName) => {
+      const g = students.filter((s) => s.department === deptName);
+      const shortDept = deptName
+        .replace("Artificial Intelligence and Machine Learning", "AIML")
+        .replace("Cyber security & Forensics", "Cyber Sec")
+        .replace("Computer Engineering", "Comp Eng");
+      return { dept: shortDept, fullDept: deptName, score: avg(g.map((s) => s.successScore)) };
+    });
+
+    const p = [...students]
+      .filter((s) => s.academicRisk === "High" || s.placementRisk === "High")
+      .sort((a, b) => a.successScore - b.successScore)
+      .slice(0, 5);
+
+    const o = interventions.filter((i) => i.status !== "Completed").length;
+    const sortedDepts = [...d].sort((a, b) => b.score - a.score);
+    const avgScore = avg(students.map((s) => s.successScore));
+
+    return {
+      acHigh: ac,
+      plHigh: pl,
+      bins: b,
+      depts: d,
+      priority: p,
+      open: o,
+      bestDept: sortedDepts[0],
+      worstDept: sortedDepts[sortedDepts.length - 1],
+      cohortAvgScore: avgScore,
+    };
+  }, [students, interventions]);
 
   return (
     <>
@@ -81,7 +103,7 @@ function Dashboard() {
       <SectionTitle title="Campus overview" />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Total students" value={students.length} hint={`${depts.length} departments`} />
-        <Stat label="Avg. Success Score" value={avg(students.map((s) => s.successScore))} hint="out of 100" />
+        <Stat label="Avg. Success Score" value={cohortAvgScore} hint="out of 100" />
         <Stat label="Academic risk · High" value={acHigh} hint={`${Math.round((acHigh / students.length) * 100)}% of cohort`} />
         <Stat label="Placement risk · High" value={plHigh} hint={`${Math.round((plHigh / students.length) * 100)}% of cohort`} />
       </div>

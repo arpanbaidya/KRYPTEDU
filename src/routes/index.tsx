@@ -1,12 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, Eye, EyeOff } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { Wordmark } from "@/components/kr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { OnSitePasswordReset } from "@/components/OnSitePasswordReset";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -24,18 +25,12 @@ export const Route = createFileRoute("/")({
 
 function Welcome() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"in" | "up">("in");
-  const [email, setEmail] = useState("");
+  const queryClient = useQueryClient();
+  const [view, setView] = useState<"login" | "forgot">("login");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [show, setShow] = useState(false);
-
-  async function forgot() {
-    if (!email) { toast.error("Enter your email first"); return; }
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
-    if (error && /rate/i.test(error.message)) toast.error("Too many requests. Please wait a minute and try again."); else toast.success("If an account exists for that email, a reset link is on its way.");
-  }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -47,31 +42,48 @@ function Welcome() {
     return () => data.subscription.unsubscribe();
   }, [navigate]);
 
+  function resolveLoginEmail(raw: string): string {
+    const trimmed = raw.trim();
+    if (trimmed.includes("@")) return trimmed;
+    const lower = trimmed.toLowerCase();
+    if (lower === "admin") return "admin@kryptedu.com";
+    if (lower === "faculty") return "faculty@kryptedu.com";
+    if (lower === "placement") return "placement@kryptedu.com";
+    if (
+      lower === "student" ||
+      lower === "arpan" ||
+      lower === "arpanbaidya" ||
+      lower === "arpan.baidya" ||
+      lower === "ust24r0102020"
+    ) {
+      return "student@kryptedu.com";
+    }
+    return `${lower}@kryptedu.com`;
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!identifier.trim()) {
+      toast.error("Please enter your email or username.");
+      return;
+    }
+    if (!password) {
+      toast.error("Please enter your password.");
+      return;
+    }
+
     setBusy(true);
     try {
-      if (mode === "in") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.auth.signUp({
-          email, password,
-          options: { emailRedirectTo: window.location.origin, data: { full_name: name } },
-        });
-        if (error) throw error;
-        if (!data.session) toast.success("Check your inbox to confirm your email.");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      const email = resolveLoginEmail(identifier);
+      queryClient.clear();
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      toast.success("Signed in successfully");
+    } catch (err: any) {
+      toast.error(err instanceof Error ? err.message : "Invalid login credentials");
     } finally {
       setBusy(false);
     }
-  }
-
-  async function google() {
-    const r = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
-    if (r.error) toast.error("Google sign-in failed");
   }
 
   return (
@@ -79,11 +91,18 @@ function Welcome() {
       <div className="relative hidden flex-col justify-between overflow-hidden p-12 lg:flex">
         <Wordmark />
         <div>
-          <div className="mb-8 flex items-center gap-2 text-sm font-medium text-primary-deep"><span className="grid size-9 place-items-center rounded-full bg-secondary">K</span> Your campus, connected</div>
+          <div className="mb-8 flex items-center gap-2 text-sm font-medium text-primary-deep">
+            <span className="grid size-9 place-items-center rounded-full bg-secondary">K</span>
+            Your campus, connected
+          </div>
           <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight">
             KRYPTEDU
             <br />
-            <span className="text-primary-deep">Smart Campus<br />Analytics.</span>
+            <span className="text-primary-deep">
+              Smart Campus
+              <br />
+              Analytics.
+            </span>
           </h1>
           <p className="mt-5 text-lg font-medium">Understand. Predict. Improve Student Success.</p>
           <p className="mt-6 max-w-md text-sm text-muted-foreground">
@@ -96,32 +115,76 @@ function Welcome() {
       <div className="flex flex-col justify-center px-6 py-12 sm:px-12">
         <div className="rise mx-auto w-full max-w-sm">
           <Wordmark className="mb-12 lg:hidden" />
-          <h2 className="text-3xl font-semibold tracking-tight">{mode === "in" ? "Welcome back" : "Create account"}</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {mode === "in" ? "Sign in to your campus analytics workspace." : "Faculty access to the KRYPTEDU workspace."}
-          </p>
 
-          <form onSubmit={submit} className="mt-8 space-y-3">
-            {mode === "up" && <Input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} className="h-12 rounded-xl" />}
-            <Input type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-12 rounded-xl" />
-            <div className="relative">
-              <Input type={show ? "text" : "password"} required minLength={6} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-12 rounded-xl pr-12" />
-              <button type="button" onClick={() => setShow(!show)} aria-label={show ? "Hide password" : "Show password"} className="absolute right-2 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-full text-muted-foreground hover:bg-secondary">{show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>
-            </div>
-            {mode === "in" && <button type="button" onClick={forgot} className="block text-xs font-medium text-muted-foreground hover:text-foreground">Forgot password?</button>}
-            <Button type="submit" disabled={busy} className="h-12 w-full rounded-xl">
-              {busy ? "Please wait…" : mode === "in" ? "Sign in" : "Create account"} <ArrowRight className="size-4" />
-            </Button>
-          </form>
-          <div className="my-5 flex items-center gap-3 text-xs text-subtle">
-            <div className="h-px flex-1 bg-border" /> or <div className="h-px flex-1 bg-border" />
-          </div>
-          <Button variant="secondary" onClick={google} className="h-12 w-full rounded-xl border">
-            Continue with Google
-          </Button>
-          <Button variant="ghost" onClick={() => setMode(mode === "in" ? "up" : "in")} className="mt-6 w-full text-center text-sm text-muted-foreground hover:text-foreground">
-            {mode === "in" ? "New here? Create an account" : "Already have an account? Sign in"}
-          </Button>
+          {view === "forgot" ? (
+            <OnSitePasswordReset
+              initialIdentifier={identifier}
+              onBackToLogin={() => setView("login")}
+            />
+          ) : (
+            <>
+              <h2 className="text-3xl font-semibold tracking-tight">Welcome back</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Sign in to your campus workspace.
+              </p>
+
+              <form onSubmit={submit} className="mt-8 space-y-3.5">
+                <div className="space-y-1">
+                  <Input
+                    type="text"
+                    required
+                    placeholder="Email or username"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    className="h-12 rounded-xl"
+                    autoComplete="username"
+                  />
+                </div>
+                <div className="relative space-y-1">
+                  <Input
+                    type={show ? "text" : "password"}
+                    required
+                    minLength={6}
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-12 rounded-xl pr-12"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShow(!show)}
+                    aria-label={show ? "Hide password" : "Show password"}
+                    className="absolute right-2 top-1.5 grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-secondary"
+                  >
+                    {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-end pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setView("forgot")}
+                    className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+
+                <Button type="submit" disabled={busy} className="h-12 w-full rounded-xl">
+                  {busy ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="size-4 animate-spin" /> Signing in…
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      Sign in <ArrowRight className="size-4" />
+                    </span>
+                  )}
+                </Button>
+              </form>
+            </>
+          )}
         </div>
       </div>
     </div>

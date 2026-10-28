@@ -96,9 +96,9 @@ describe("AI Service Layer & Conversational Copilot Invariants", () => {
         attendance: 88,
         lms_activity: 80,
         engagement: 75,
-        placement_readiness: 40,
-        skills_score: 42,
-        feedback_score: 50,
+        placement_readiness: 25,
+        skills_score: 25,
+        feedback_score: 30,
         backlogs: 0,
       },
     ];

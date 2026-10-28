@@ -23,7 +23,18 @@ function download(name: string, rows: (string | number)[][]) {
 }
 const studentRows = (l: Scored[]) => [
   ["Roll", "Name", "Department", "Year", "CGPA", "Attendance", "Success", "Academic risk", "Placement risk", "Segment"],
-  ...l.map((s) => [s.roll_no, s.name, s.department, s.year, s.cgpa, s.attendance, s.successScore, s.academicRisk, s.placementRisk, s.segment]),
+  ...l.map((s) => [
+    s.roll_no,
+    s.name,
+    s.department,
+    s.year,
+    s.rawCgpa !== null ? s.cgpa : "N/A",
+    s.rawAttendance !== null ? s.attendance : "N/A",
+    s.hasMetrics ? s.successScore : "Pending",
+    s.hasMetrics ? s.academicRisk : "Pending",
+    s.hasMetrics ? s.placementRisk : "Pending",
+    s.segment,
+  ]),
 ];
 
 function Reports() {
@@ -31,6 +42,17 @@ function Reports() {
   const { data: ints } = useSuspenseQuery(interventionsQuery);
   const reports = [
     { t: "Full cohort success report", d: `${students.length} students with scores, risks and segments`, go: () => download("kryptedu-cohort.csv", studentRows(students)) },
+    { t: "Published attendance report", d: `Official attendance records across 65 weekdays for ${students.length} students (Aug–Oct 2026)`, go: () => download("kryptedu-attendance-cohort.csv", [
+      ["Roll No", "Name", "Department", "Attendance %", "Academic Risk", "Status"],
+      ...students.map((s) => [
+        s.roll_no,
+        s.name,
+        s.department,
+        s.rawAttendance !== null ? `${s.attendance}%` : "N/A",
+        s.academicRisk,
+        s.attendance >= 75 ? "Satisfactory" : s.attendance >= 60 ? "Warning" : "Critical Deficit",
+      ]),
+    ]) },
     { t: "At-risk students", d: "High academic or placement risk", go: () => download("kryptedu-at-risk.csv", studentRows(students.filter((s) => s.academicRisk === "High" || s.placementRisk === "High"))) },
     { t: "Interventions log", d: `${ints.length} interventions with status`, go: () => download("kryptedu-interventions.csv", [["Title", "Category", "Priority", "Status", "Assigned", "Due"], ...ints.map((i) => [i.title, i.category, i.priority, i.status, i.assigned_to, i.due_date ?? ""])]) },
   ];

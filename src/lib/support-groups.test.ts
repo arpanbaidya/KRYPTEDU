@@ -42,7 +42,7 @@ describe("support groups", () => {
 
   it("strong academics, placement under 60", () =>
     expect(
-      supportGroups({ ...base, placement_readiness: 40, skills_score: 50, feedback_score: 60 }),
+      supportGroups({ ...base, placement_readiness: 40, skills_score: 40, feedback_score: 50 }),
     ).toContain("Strong academics, low placement"));
 
   it("both risks low → placement-ready", () =>

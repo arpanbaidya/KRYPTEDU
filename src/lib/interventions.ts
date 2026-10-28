@@ -47,34 +47,36 @@ export function generateSuggestions(s: Scored): InterventionSuggestion[] {
     });
   }
 
-  // Academic - CGPA
-  const cgpa = Number(s.cgpa);
-  if (cgpa < 5) {
-    suggestions.push({
-      issue: "CGPA critically below passing threshold",
-      indicator: "cgpa",
-      indicatorValue: cgpa,
-      threshold: 5,
-      action: "Assign dedicated academic mentor for remedial support",
-      why: "CGPA below 5.0 indicates severe academic difficulty requiring structured intervention",
-      followUp: "Weekly mentoring sessions; reassess at mid-semester",
-      priority: "High",
-      category: "Academic",
-      requiresFacultyReview: true,
-    });
-  } else if (cgpa < 6 && cgpa >= 5) {
-    suggestions.push({
-      issue: "Below-average academic performance",
-      indicator: "cgpa",
-      indicatorValue: cgpa,
-      threshold: 6,
-      action: "Enroll in peer tutoring or remedial coaching program",
-      why: "Students with CGPA 5-6 benefit from targeted academic support before falling further",
-      followUp: "Monthly CGPA tracking; check improvement at next semester",
-      priority: "Medium",
-      category: "Academic",
-      requiresFacultyReview: true,
-    });
+  // Academic - CGPA (Authoritative Academics CGPA — only triggers when valid published results exist)
+  if (s.rawCgpa !== null && s.rawCgpa !== undefined) {
+    const cgpa = Number(s.rawCgpa);
+    if (cgpa < 5) {
+      suggestions.push({
+        issue: "CGPA critically below passing threshold",
+        indicator: "cgpa",
+        indicatorValue: cgpa,
+        threshold: 5,
+        action: "Assign dedicated academic mentor for remedial support",
+        why: "Authoritative Academics CGPA below 5.0 indicates severe academic difficulty requiring structured intervention",
+        followUp: "Weekly mentoring sessions; reassess at mid-semester",
+        priority: "High",
+        category: "Academic",
+        requiresFacultyReview: true,
+      });
+    } else if (cgpa < 6 && cgpa >= 5) {
+      suggestions.push({
+        issue: "Below-average academic performance",
+        indicator: "cgpa",
+        indicatorValue: cgpa,
+        threshold: 6,
+        action: "Enroll in peer tutoring or remedial coaching program",
+        why: "Students with authoritative CGPA 5–6 benefit from targeted academic support before falling further",
+        followUp: "Monthly CGPA tracking; check improvement at next semester",
+        priority: "Medium",
+        category: "Academic",
+        requiresFacultyReview: true,
+      });
+    }
   }
 
   // Academic - Backlogs
@@ -122,15 +124,31 @@ export function generateSuggestions(s: Scored): InterventionSuggestion[] {
     });
   }
 
-  // Placement Readiness
-  if (s.placement_readiness < 45) {
+  // Placement Risk (Independent multi-indicator model combining CGPA, skills, mock interview, readiness, attendance)
+  if (s.placementRisk === "High") {
+    suggestions.push({
+      issue: "High placement risk detected",
+      indicator: "placement_risk",
+      indicatorValue: s.placementRiskScore ?? 0,
+      threshold: 50,
+      action: "Assign dedicated placement mentor to develop targeted career preparation roadmap",
+      why: `Overall placement readiness score is ${s.placementReadinessScore ?? "—"}/100 (Risk Score: ${s.placementRiskScore ?? "—"}). Key factors: ${(s.placementRiskReasons || []).slice(0, 2).join("; ") || "Deficit across core placement metrics"}`,
+      followUp: "Bi-weekly career mentoring and placement readiness review",
+      priority: "High",
+      category: "Placement",
+      requiresFacultyReview: true,
+    });
+  }
+
+  // Placement Readiness (Aptitude & preparation)
+  if (s.placement_readiness < 50) {
     suggestions.push({
       issue: "Low placement readiness",
       indicator: "placement_readiness",
       indicatorValue: s.placement_readiness,
-      threshold: 45,
+      threshold: 50,
       action: "Enroll in placement preparation program covering aptitude and professional skills",
-      why: "Readiness below 45 triggers High placement risk; early preparation improves outcomes",
+      why: "Readiness below 50 indicates gaps in resume, aptitude, and career preparation",
       followUp: "Reassess readiness score after program completion",
       priority: "High",
       category: "Placement",
@@ -139,14 +157,14 @@ export function generateSuggestions(s: Scored): InterventionSuggestion[] {
   }
 
   // Skills
-  if (s.skills_score < 40) {
+  if (s.skills_score < 50) {
     suggestions.push({
       issue: "Significant skill gaps identified",
       indicator: "skills_score",
       indicatorValue: s.skills_score,
-      threshold: 40,
+      threshold: 50,
       action: "Assign coding/technical practice with mentorship",
-      why: "Skills below 40 indicate gaps that require dedicated practice to address",
+      why: "Skills score below 50 indicates technical gaps that require dedicated practice to address",
       followUp: "Monthly skill assessment; track progress on specific competencies",
       priority: "High",
       category: "Skills",
@@ -154,15 +172,15 @@ export function generateSuggestions(s: Scored): InterventionSuggestion[] {
     });
   }
 
-  // Feedback
-  if (s.feedback_score < 40) {
+  // Mock interview / feedback
+  if (s.feedback_score < 50) {
     suggestions.push({
-      issue: "Low faculty/mock interview feedback",
+      issue: "Low mock interview feedback",
       indicator: "feedback_score",
       indicatorValue: s.feedback_score,
-      threshold: 40,
+      threshold: 50,
       action: "Schedule mock interview sessions with industry mentors",
-      why: "Low feedback scores suggest presentation or communication gaps addressable through practice",
+      why: "Mock interview score below 50 suggests interview communication or presentation gaps",
       followUp: "Schedule follow-up mock interviews; compare scores",
       priority: "Medium",
       category: "Placement",

@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { KeyRound, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, PageHeader, SectionTitle } from "@/components/kr";
@@ -14,26 +15,51 @@ const ROLE_LABELS: Record<string, string> = { admin: "Administrator", faculty: "
 
 function Profile() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user, role } = Route.useRouteContext() as { user?: { email?: string; created_at?: string; last_sign_in_at?: string }; role?: string };
   return (
     <>
       <PageHeader eyebrow="Account" title="Profile & settings" />
       <div className="grid gap-4 lg:grid-cols-2">
         <IdCard />
-        <Card>
-          <SectionTitle title="Account details" />
-          <dl className="space-y-3 text-sm">
-            <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Email</dt><dd className="truncate font-medium">{user?.email ?? "—"}</dd></div>
-            <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Role</dt><dd className="font-medium">{ROLE_LABELS[role ?? ""] ?? "No role assigned"}</dd></div>
-            <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Member since</dt><dd className="font-medium">{user?.created_at ? new Date(user.created_at).toLocaleDateString() : "—"}</dd></div>
-            <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Last sign-in</dt><dd className="font-medium">{user?.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : "—"}</dd></div>
-          </dl>
-          <Button variant="secondary" className="mt-4 rounded-xl border" onClick={() => navigate({ to: "/reset-password" })}>
-            <KeyRound className="size-4" /> Change password
-          </Button>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <SectionTitle title="Account details" />
+            <dl className="space-y-3 text-sm">
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Email</dt><dd className="truncate font-medium">{user?.email ?? "—"}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Role</dt><dd className="font-medium">{ROLE_LABELS[role ?? ""] ?? "No role assigned"}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Member since</dt><dd className="font-medium">{user?.created_at ? new Date(user.created_at).toLocaleDateString() : "—"}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Last sign-in</dt><dd className="font-medium">{user?.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : "—"}</dd></div>
+            </dl>
+            <Button variant="secondary" className="mt-4 rounded-xl border" onClick={() => navigate({ to: "/reset-password" })}>
+              <KeyRound className="size-4" /> Change password
+            </Button>
+          </Card>
+
+          {role === "student" && (
+            <Card>
+              <SectionTitle title="Institutional Student Profile" />
+              <dl className="space-y-2.5 text-sm">
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Student Name</dt><dd className="font-semibold text-foreground">Arpan Asto Baidya</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Roll Number</dt><dd className="font-mono font-medium text-foreground">UST24R0102020</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Department</dt><dd className="font-medium text-foreground">Computer Engineering</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Programme</dt><dd className="font-medium text-foreground">B.Tech Computer Engineering</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Academic Year</dt><dd className="font-medium text-foreground">Year 1 · Batch 2024</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Institutional Email</dt><dd className="font-mono text-xs text-foreground">arpan.baidya@ustu.edu.in</dd></div>
+              </dl>
+            </Card>
+          )}
+        </div>
       </div>
-      <Button variant="secondary" className="mt-6 rounded-xl border" onClick={async () => { await supabase.auth.signOut(); navigate({ to: "/" }); }}>
+      <Button
+        variant="secondary"
+        className="mt-6 rounded-xl border"
+        onClick={async () => {
+          queryClient.clear();
+          await supabase.auth.signOut();
+          navigate({ to: "/" });
+        }}
+      >
         <LogOut className="size-4" /> Sign out
       </Button>
     </>

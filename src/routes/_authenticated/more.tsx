@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Bell, ChevronRight, Database, FileText, HelpCircle, LogOut, Mic, Settings, Sparkles, UserCircle } from "lucide-react";
+import { Bell, CalendarCheck, GraduationCap, ChevronRight, CreditCard, Database, FileText, HelpCircle, LogOut, Mic, Settings, Sparkles, UserCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/kr";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,9 @@ export const Route = createFileRoute("/_authenticated/more")({
   component: More,
 });
 
-const items = [
+const commonItems = [
+  { to: "/attendance", label: "Attendance", desc: "Live department-wise attendance system", icon: CalendarCheck },
+  { to: "/academics", label: "Academics", desc: "Curriculum subjects, faculty, resources & published results", icon: GraduationCap },
   { to: "/integration", label: "Data Integration", desc: "Import CSVs across six data sources", icon: Database },
   { to: "/insights", label: "AI Insights", desc: "Ask questions about your cohort", icon: Sparkles },
   { to: "/interview", label: "Mock Interview Studio", desc: "Practise interviews with AI feedback", icon: Mic },
@@ -19,12 +21,37 @@ const items = [
   { to: "/profile", label: "Settings", desc: "Preferences and scoring model", icon: Settings },
 ] as const;
 
-const studentItems = ["/interview", "/notifications", "/profile"];
-
 function More() {
   const navigate = useNavigate();
   const { role } = Route.useRouteContext() as { role?: string };
-  const visible = role === "student" ? items.filter((i) => studentItems.includes(i.to)) : items;
+
+  const visible = (() => {
+    if (role === "student") {
+      return [
+        { to: "/attendance", label: "Attendance", desc: "Your published attendance record", icon: CalendarCheck },
+        { to: "/academics", label: "Academics", desc: "Your enrolled subjects, resources, and semester grade register", icon: GraduationCap },
+        { to: "/payments", label: "Payments", desc: "Your course fee, balance & online payments", icon: CreditCard },
+        { to: "/interview", label: "Mock Interview Studio", desc: "Practise interviews with AI feedback", icon: Mic },
+        { to: "/notifications", label: "Notifications", desc: "Alerts and follow-ups", icon: Bell },
+        { to: "/profile", label: "Profile & Settings", desc: "Your student account", icon: UserCircle },
+      ];
+    }
+    if (role === "admin") {
+      return [
+        commonItems[0],
+        commonItems[1],
+        commonItems[2],
+        commonItems[3],
+        commonItems[4],
+        { to: "/admin/payments", label: "Payments", desc: "Course fee management & financial ledger", icon: CreditCard },
+        commonItems[5],
+        commonItems[6],
+        commonItems[7],
+      ];
+    }
+    // Faculty & Placement: Payments is hidden
+    return commonItems;
+  })();
   return (
     <>
       <PageHeader eyebrow="KRYPTEDU" title="More" />

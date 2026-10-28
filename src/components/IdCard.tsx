@@ -5,15 +5,63 @@ import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
-type U = { id: string; email: string | undefined; name: string; created: string | undefined };
+type U = {
+  id: string;
+  email: string | undefined;
+  name: string;
+  created: string | undefined;
+  role?: string;
+  rollNo?: string;
+  department?: string;
+};
 
 function useMe() {
   const [me, setMe] = useState<U | null>(null);
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       const u = data.user;
       if (!u) return;
-      setMe({ id: u.id, email: u.email, name: (u.user_metadata?.["full_name"] as string) || u.email?.split("@")[0] || "User", created: u.created_at });
+
+      let role = "faculty";
+      try {
+        const { data: rData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", u.id)
+          .maybeSingle();
+        if (rData?.role) role = rData.role;
+      } catch {
+        // ignore
+      }
+
+      const email = u.email?.toLowerCase() || "";
+      const isStudentRole =
+        role === "student" ||
+        email === "student@kryptedu.com" ||
+        email === "arpan.baidya@ustu.edu.in" ||
+        email === "arpan@kryptedu.com" ||
+        email.includes("arpan") ||
+        email.includes("baidya");
+
+      if (isStudentRole) {
+        setMe({
+          id: u.id,
+          email: "arpan.baidya@ustu.edu.in",
+          name: "Arpan Asto Baidya",
+          created: u.created_at,
+          role: "student",
+          rollNo: "UST24R0102020",
+          department: "Computer Engineering",
+        });
+      } else {
+        setMe({
+          id: u.id,
+          email: u.email,
+          name: (u.user_metadata?.["full_name"] as string) || u.email?.split("@")[0] || "User",
+          created: u.created_at,
+          role,
+        });
+      }
     });
   }, []);
   return me;
@@ -26,7 +74,8 @@ function Spark({ className = "" }: { className?: string }) {
 export function IdCard({ className }: { className?: string }) {
   const me = useMe();
   const [flip, setFlip] = useState(false);
-  const idNo = me ? "KR-" + me.id.replace(/-/g, "").slice(0, 8).toUpperCase() : "KR-········";
+  const isStudent = me?.role === "student" || !!me?.rollNo;
+  const idNo = isStudent && me?.rollNo ? me.rollNo : me ? "KR-" + me.id.replace(/-/g, "").slice(0, 8).toUpperCase() : "KR-········";
   const year = new Date().getFullYear();
   return (
     <div className={cn("flex flex-col items-center", className)}>
@@ -43,7 +92,9 @@ export function IdCard({ className }: { className?: string }) {
             <div className="absolute inset-x-0 bottom-0 p-5">
               <p className="break-words text-3xl font-bold uppercase leading-none tracking-tight">{me?.name ?? "Loading"}</p>
               <p className="mt-2 truncate text-xs opacity-75">{me?.email}</p>
-              <span className="mt-2 inline-block rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">Faculty · Staff</span>
+              <span className="mt-2 inline-block rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">
+                {isStudent ? `Student · ${me?.department || "Engineering"}` : "Faculty · Staff"}
+              </span>
             </div>
           </div>
           <div className="face-back absolute inset-0 flex flex-col items-center overflow-hidden rounded-[26px] bg-id p-5 text-id-foreground shadow-float">
@@ -52,8 +103,12 @@ export function IdCard({ className }: { className?: string }) {
               <QRCodeSVG value={idNo} size={170} level="M" />
             </div>
             <p className="mt-4 font-mono text-xs tracking-wider opacity-80">{idNo}</p>
-            <p className="mt-auto text-2xl font-bold uppercase tracking-tight">Staff ID</p>
-            <span className="mt-1 rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">Valid till 06/{year + 1}</span>
+            <p className="mt-auto text-2xl font-bold uppercase tracking-tight">
+              {isStudent ? "Student ID" : "Staff ID"}
+            </p>
+            <span className="mt-1 rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">
+              {isStudent ? `Valid till 06/${year + 4}` : `Valid till 06/${year + 1}`}
+            </span>
           </div>
         </button>
       </div>

@@ -235,6 +235,152 @@ export type Database = {
         }
         Relationships: []
       }
+      student_course_fees: {
+        Row: {
+          course_name: string
+          created_at: string
+          currency: string
+          due_date: string | null
+          id: string
+          student_id: string
+          total_fee: number
+          updated_at: string
+        }
+        Insert: {
+          course_name?: string
+          created_at?: string
+          currency?: string
+          due_date?: string | null
+          id?: string
+          student_id: string
+          total_fee?: number
+          updated_at?: string
+        }
+        Update: {
+          course_name?: string
+          created_at?: string
+          currency?: string
+          due_date?: string | null
+          id?: string
+          student_id?: string
+          total_fee?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_course_fees_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      payment_transactions: {
+        Row: {
+          amount: number
+          created_at: string
+          currency: string
+          fee_id: string
+          id: string
+          notes: string | null
+          payment_method: string | null
+          payment_option: string
+          razorpay_order_id: string
+          razorpay_payment_id: string | null
+          razorpay_signature: string | null
+          receipt_number: string | null
+          status: string
+          student_id: string
+          updated_at: string
+          verified_at: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          currency?: string
+          fee_id: string
+          id?: string
+          notes?: string | null
+          payment_method?: string | null
+          payment_option?: string
+          razorpay_order_id: string
+          razorpay_payment_id?: string | null
+          razorpay_signature?: string | null
+          receipt_number?: string | null
+          status?: string
+          student_id: string
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          currency?: string
+          fee_id?: string
+          id?: string
+          notes?: string | null
+          payment_method?: string | null
+          payment_option?: string
+          razorpay_order_id?: string
+          razorpay_payment_id?: string | null
+          razorpay_signature?: string | null
+          receipt_number?: string | null
+          status?: string
+          student_id?: string
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_transactions_fee_id_fkey"
+            columns: ["fee_id"]
+            isOneToOne: false
+            referencedRelation: "student_course_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_transactions_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      fee_audit_logs: {
+        Row: {
+          changed_by: string | null
+          created_at: string
+          fee_id: string
+          id: string
+          new_fee: number
+          old_fee: number
+          reason: string | null
+          student_id: string
+        }
+        Insert: {
+          changed_by?: string | null
+          created_at?: string
+          fee_id: string
+          id?: string
+          new_fee: number
+          old_fee: number
+          reason?: string | null
+          student_id: string
+        }
+        Update: {
+          changed_by?: string | null
+          created_at?: string
+          fee_id?: string
+          id?: string
+          new_fee?: number
+          old_fee?: number
+          reason?: string | null
+          student_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

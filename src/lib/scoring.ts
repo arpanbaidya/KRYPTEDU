@@ -46,7 +46,7 @@ export type StudentRow = {
   backlogs: number | null | undefined;
 };
 
-export type Risk = "High" | "Medium" | "Low";
+export type Risk = "High" | "Medium" | "Low" | "Insufficient Data";
 export type Segment =
   | "High Academic / High Placement"
   | "High Academic / Low Placement"
@@ -54,6 +54,23 @@ export type Segment =
   | "Low Academic / Low Placement";
 
 export type DataQualityLevel = "Complete" | "Partial" | "Low confidence";
+
+export type PlacementIndicatorBreakdown = {
+  cgpa: { raw: number | null; normalized: number | null; weight: number; contribution: number | null };
+  technicalSkills: { raw: number | null; weight: number; contribution: number | null };
+  mockInterview: { raw: number | null; weight: number; contribution: number | null };
+  placementReadiness: { raw: number | null; weight: number; contribution: number | null };
+  attendance: { raw: number | null; weight: number; contribution: number | null };
+  totalActiveWeight: number;
+};
+
+export type PlacementRiskEvaluation = {
+  readinessScore: number | null;
+  riskScore: number | null;
+  riskLevel: Risk;
+  reasons: string[];
+  breakdown: PlacementIndicatorBreakdown;
+};
 
 export type ScoreExplanation = {
   /** Plain-language statement of the strongest positive contributor. */
@@ -92,8 +109,21 @@ export type Scored = Omit<
   skills_score: number;
   feedback_score: number;
   backlogs: number;
+  rawCgpa: number | null;
+  rawAttendance: number | null;
+  rawLmsActivity: number | null;
+  rawEngagement: number | null;
+  rawPlacementReadiness: number | null;
+  rawSkillsScore: number | null;
+  rawFeedbackScore: number | null;
+  rawBacklogs: number | null;
+  hasMetrics: boolean;
   academicIndex: number;
   placementIndex: number;
+  placementReadinessScore: number | null;
+  placementRiskScore: number | null;
+  placementRiskReasons: string[];
+  placementRiskBreakdown: PlacementIndicatorBreakdown;
   successScore: number;
   academicRisk: Risk;
   placementRisk: Risk;
@@ -120,25 +150,38 @@ export const SCORING_CONFIG = {
     attendance: 0.3,
     lmsActivity: 0.2,
   },
-  /** Sub-weights within Placement Index (must sum to 1.0). */
+  /** Sub-weights within Placement Readiness / Risk Model (sums to 1.0). */
   placement: {
-    readiness: 0.5,
-    skills: 0.3,
-    feedback: 0.2,
+    /** Academic foundation (CGPA normalised to 0–100 scale: G = 10 × CGPA) */
+    cgpa: 0.25,
+    /** Technical skills assessment (0–100) */
+    skills: 0.25,
+    /** Mock interview score (0–100) */
+    interview: 0.20,
+    /** Placement preparation (resume, aptitude, preparation: 0–100) */
+    readiness: 0.20,
+    /** Attendance / professional reliability (0–100) */
+    attendance: 0.10,
+    /** Backward compatibility alias for interview */
+    feedback: 0.20,
   },
 
   /** Penalty per backlog (subtracted from Academic Index before clamping). */
   backlogPenalty: 5,
 
-  /** Academic risk thresholds. */
+  /** Academic and Placement risk thresholds. */
   risk: {
     academicHighIndex: 55,
     academicMediumIndex: 70,
     academicHighAttendance: 60,
     academicMediumAttendance: 75,
     academicHighBacklogs: 2,
-    placementHighIndex: 45,
-    placementMediumIndex: 65,
+    /** High placement risk when Placement Readiness R < 50 (Placement Risk Score > 50) */
+    placementHighIndex: 50,
+    /** Medium placement risk when 50 <= R < 75 (Placement Risk Score 25.01 - 50) */
+    placementMediumIndex: 75,
+    placementHighReadiness: 50,
+    placementMediumReadiness: 75,
   },
 
   /** Segmentation thresholds. */
@@ -232,27 +275,162 @@ export function academicIndex(s: StudentRow): number {
   return round(clamp(rawIndex - backlogs * SCORING_CONFIG.backlogPenalty));
 }
 
-// ─── Placement Index ─────────────────────────────────────────────────────────
+// ─── Placement Index & Multi-Indicator Risk Evaluation ─────────────────────
+
+/**
+ * Evaluates the authoritative multi-indicator Placement Risk Model:
+ *
+ * Formula:
+ * R = 0.25G + 0.25T + 0.20I + 0.20P + 0.10C
+ * Where:
+ * - G = Normalised CGPA (10 × CGPA on a 10-point scale) [25%]
+ * - T = Technical skills assessment score [25%]
+ * - I = Mock interview score (feedback_score) [20%]
+ * - P = Placement readiness score [20%]
+ * - C = Attendance score [10%]
+ *
+ * Placement Risk Score = 100 - R
+ *
+ * Thresholds:
+ * - Low Risk: Readiness R >= 75 (Risk score <= 25)
+ * - Medium Risk: Readiness 50 <= R < 75 (Risk score 25.01 - 50)
+ * - High Risk: Readiness R < 50 (Risk score > 50)
+ *
+ * Missing-Data Policy:
+ * - When an indicator is missing (null/undefined/NaN), its weight is excluded and the remaining
+ *   weights are rescaled so they sum to 1.0 (no indicator is silently assumed to be 0).
+ * - If all indicators are missing, returns riskLevel "Insufficient Data".
+ */
+export function evaluatePlacementRisk(s: StudentRow): PlacementRiskEvaluation {
+  const cfg = SCORING_CONFIG.placement;
+  const rawCgpa = parseField(s.cgpa);
+  const rawSkills = parseField(s.skills_score);
+  const rawInterview = parseField(s.feedback_score);
+  const rawReadiness = parseField(s.placement_readiness);
+  const rawAttendance = parseField(s.attendance);
+
+  const activeParts: { key: string; weight: number; value: number }[] = [];
+
+  const normCgpa = rawCgpa !== null ? clamp(rawCgpa * 10) : null;
+  if (normCgpa !== null) activeParts.push({ key: "cgpa", weight: cfg.cgpa, value: normCgpa });
+
+  const normSkills = rawSkills !== null ? clamp(rawSkills) : null;
+  if (normSkills !== null) activeParts.push({ key: "skills", weight: cfg.skills, value: normSkills });
+
+  const normInterview = rawInterview !== null ? clamp(rawInterview) : null;
+  if (normInterview !== null) activeParts.push({ key: "interview", weight: cfg.interview, value: normInterview });
+
+  const normReadiness = rawReadiness !== null ? clamp(rawReadiness) : null;
+  if (normReadiness !== null) activeParts.push({ key: "readiness", weight: cfg.readiness, value: normReadiness });
+
+  const normAttendance = rawAttendance !== null ? clamp(rawAttendance) : null;
+  if (normAttendance !== null) activeParts.push({ key: "attendance", weight: cfg.attendance, value: normAttendance });
+
+  const totalActiveWeight = activeParts.reduce((acc, p) => acc + p.weight, 0);
+
+  if (activeParts.length === 0 || totalActiveWeight === 0) {
+    return {
+      readinessScore: null,
+      riskScore: null,
+      riskLevel: "Insufficient Data",
+      reasons: ["Insufficient data: all 5 placement indicators (CGPA, technical skills, mock interview, placement readiness, attendance) are pending."],
+      breakdown: {
+        cgpa: { raw: rawCgpa, normalized: null, weight: cfg.cgpa, contribution: null },
+        technicalSkills: { raw: rawSkills, weight: cfg.skills, contribution: null },
+        mockInterview: { raw: rawInterview, weight: cfg.interview, contribution: null },
+        placementReadiness: { raw: rawReadiness, weight: cfg.readiness, contribution: null },
+        attendance: { raw: rawAttendance, weight: cfg.attendance, contribution: null },
+        totalActiveWeight: 0,
+      },
+    };
+  }
+
+  // Calculate weighted readiness score R
+  const unroundedR = activeParts.reduce((acc, p) => acc + (p.weight / totalActiveWeight) * p.value, 0);
+  const readinessScore = Math.round(unroundedR * 10) / 10;
+  const riskScore = Math.round((100 - unroundedR) * 10) / 10;
+
+  // Determine risk level based on readiness R
+  let riskLevel: Risk = "Low";
+  if (readinessScore < SCORING_CONFIG.risk.placementHighReadiness) {
+    riskLevel = "High";
+  } else if (readinessScore < SCORING_CONFIG.risk.placementMediumReadiness) {
+    riskLevel = "Medium";
+  } else {
+    riskLevel = "Low";
+  }
+
+  // Explanatory reasons for faculty and placement officers
+  const reasons: string[] = [];
+  if (normCgpa !== null && normCgpa < 60) {
+    reasons.push(`Academic foundation needs support (CGPA: ${rawCgpa}/10, threshold: 6.0)`);
+  }
+  if (normSkills !== null && normSkills < 50) {
+    reasons.push(`Technical skills gap (Score: ${rawSkills}/100, threshold: 50)`);
+  }
+  if (normInterview !== null && normInterview < 50) {
+    reasons.push(`Mock interview score needs improvement (Score: ${rawInterview}/100, threshold: 50)`);
+  }
+  if (normReadiness !== null && normReadiness < 50) {
+    reasons.push(`Placement preparation lag (Readiness: ${rawReadiness}/100, threshold: 50)`);
+  }
+  if (normAttendance !== null && normAttendance < 75) {
+    reasons.push(`Attendance deficit affecting placement reliability (${rawAttendance}%, threshold: 75%)`);
+  }
+
+  if (reasons.length === 0) {
+    if (riskLevel === "Low") {
+      reasons.push("Strong readiness across academic, technical, interview, and preparation indicators");
+    } else {
+      reasons.push("Moderate performance across composite placement indicators");
+    }
+  }
+
+  return {
+    readinessScore,
+    riskScore,
+    riskLevel,
+    reasons,
+    breakdown: {
+      cgpa: {
+        raw: rawCgpa,
+        normalized: normCgpa,
+        weight: cfg.cgpa,
+        contribution: normCgpa !== null ? Math.round((cfg.cgpa / totalActiveWeight) * normCgpa * 10) / 10 : null,
+      },
+      technicalSkills: {
+        raw: rawSkills,
+        weight: cfg.skills,
+        contribution: normSkills !== null ? Math.round((cfg.skills / totalActiveWeight) * normSkills * 10) / 10 : null,
+      },
+      mockInterview: {
+        raw: rawInterview,
+        weight: cfg.interview,
+        contribution: normInterview !== null ? Math.round((cfg.interview / totalActiveWeight) * normInterview * 10) / 10 : null,
+      },
+      placementReadiness: {
+        raw: rawReadiness,
+        weight: cfg.readiness,
+        contribution: normReadiness !== null ? Math.round((cfg.readiness / totalActiveWeight) * normReadiness * 10) / 10 : null,
+      },
+      attendance: {
+        raw: rawAttendance,
+        weight: cfg.attendance,
+        contribution: normAttendance !== null ? Math.round((cfg.attendance / totalActiveWeight) * normAttendance * 10) / 10 : null,
+      },
+      totalActiveWeight,
+    },
+  };
+}
 
 /**
  * Placement Index (0–100).
+ * Equals the Placement Readiness Score R (rounded to integer).
  * Missing indicators are excluded and remaining sub-weights are rescaled.
  */
 export function placementIndex(s: StudentRow): number {
-  const cfg = SCORING_CONFIG.placement;
-  const readRaw = parseField(s.placement_readiness);
-  const sklRaw = parseField(s.skills_score);
-  const fbRaw = parseField(s.feedback_score);
-
-  const parts: { weight: number; value: number }[] = [];
-  if (readRaw !== null) parts.push({ weight: cfg.readiness, value: readRaw });
-  if (sklRaw !== null) parts.push({ weight: cfg.skills, value: sklRaw });
-  if (fbRaw !== null) parts.push({ weight: cfg.feedback, value: fbRaw });
-
-  if (parts.length === 0) return 0;
-
-  const totalWeight = parts.reduce((a, p) => a + p.weight, 0);
-  return round(clamp(parts.reduce((a, p) => a + (p.weight / totalWeight) * p.value, 0)));
+  const evalResult = evaluatePlacementRisk(s);
+  return evalResult.readinessScore !== null ? round(evalResult.readinessScore) : 0;
 }
 
 // ─── Student Success Score ───────────────────────────────────────────────────
@@ -295,11 +473,7 @@ export function academicRisk(s: StudentRow): Risk {
 }
 
 export function placementRisk(s: StudentRow): Risk {
-  const p = placementIndex(s);
-  const { risk } = SCORING_CONFIG;
-  if (p < risk.placementHighIndex) return "High";
-  if (p < risk.placementMediumIndex) return "Medium";
-  return "Low";
+  return evaluatePlacementRisk(s).riskLevel;
 }
 
 // ─── Segmentation ────────────────────────────────────────────────────────────
@@ -322,14 +496,27 @@ export function riskFactors(s: StudentRow): string[] {
   const eng = parseField(s.engagement);
   const plc = parseField(s.placement_readiness);
   const skl = parseField(s.skills_score);
+  const fb = parseField(s.feedback_score);
 
   if (cgpa !== null && cgpa < 6) f.push(`Low CGPA (${cgpa})`);
   if (att !== null && att < 75) f.push(`Attendance below 75% (${att}%)`);
   if (bl !== null && bl > 0) f.push(`${bl} active backlog${bl > 1 ? "s" : ""}`);
   if (lms !== null && lms < 45) f.push(`Low LMS activity (${lms})`);
   if (eng !== null && eng < 40) f.push(`Low campus engagement (${eng})`);
-  if (plc !== null && plc < 45) f.push(`Low placement readiness (${plc})`);
-  if (skl !== null && skl < 40) f.push(`Skill gaps (${skl})`);
+  if (plc !== null && plc < 50) f.push(`Low placement readiness (${plc})`);
+  if (skl !== null && skl < 50) f.push(`Skill gaps (${skl})`);
+  if (fb !== null && fb < 50) f.push(`Interview readiness needs practice (${fb})`);
+
+  // Include detailed placement risk reasons if at risk
+  const pEval = evaluatePlacementRisk(s);
+  if (pEval.riskLevel === "High") {
+    for (const r of pEval.reasons) {
+      if (!f.includes(r) && !r.startsWith("Strong") && !r.startsWith("Moderate")) {
+        f.push(r);
+      }
+    }
+  }
+
   return f;
 }
 
@@ -449,15 +636,33 @@ export function explainScore(s: StudentRow): ScoreExplanation {
 // ─── Composite scorer ────────────────────────────────────────────────────────
 
 export function score(s: StudentRow): Scored {
+  const rawCgpa = parseField(s.cgpa);
+  const rawAttendance = parseField(s.attendance);
+  const rawLmsActivity = parseField(s.lms_activity);
+  const rawEngagement = parseField(s.engagement);
+  const rawPlacementReadiness = parseField(s.placement_readiness);
+  const rawSkillsScore = parseField(s.skills_score);
+  const rawFeedbackScore = parseField(s.feedback_score);
+  const rawBacklogs = parseField(s.backlogs);
+
+  const hasMetrics =
+    rawCgpa !== null ||
+    rawAttendance !== null ||
+    rawLmsActivity !== null ||
+    rawEngagement !== null ||
+    rawPlacementReadiness !== null ||
+    rawSkillsScore !== null ||
+    rawFeedbackScore !== null;
+
   // Normalise nulls to 0 for fields that are stored as non-null in the output type
-  const cgpa = parseField(s.cgpa) ?? 0;
-  const att = parseField(s.attendance) ?? 0;
-  const lms = parseField(s.lms_activity) ?? 0;
-  const eng = parseField(s.engagement) ?? 0;
-  const plc = parseField(s.placement_readiness) ?? 0;
-  const skl = parseField(s.skills_score) ?? 0;
-  const fb = parseField(s.feedback_score) ?? 0;
-  const bl = parseField(s.backlogs) ?? 0;
+  const cgpa = rawCgpa ?? 0;
+  const att = rawAttendance ?? 0;
+  const lms = rawLmsActivity ?? 0;
+  const eng = rawEngagement ?? 0;
+  const plc = rawPlacementReadiness ?? 0;
+  const skl = rawSkillsScore ?? 0;
+  const fb = rawFeedbackScore ?? 0;
+  const bl = rawBacklogs ?? 0;
 
   // Build a normalised version of the row for consistent downstream use
   const normalised: StudentRow = {
@@ -472,6 +677,11 @@ export function score(s: StudentRow): Scored {
     backlogs: bl,
   };
 
+  const aRisk = hasMetrics ? academicRisk(s) : "Low";
+  const pEval = evaluatePlacementRisk(s);
+  const pRisk = hasMetrics ? pEval.riskLevel : "Low";
+  const rFactors = hasMetrics ? riskFactors(s) : ["Institutional metrics pending collection"];
+
   return {
     ...normalised,
     cgpa,
@@ -482,13 +692,26 @@ export function score(s: StudentRow): Scored {
     skills_score: skl,
     feedback_score: fb,
     backlogs: bl,
+    rawCgpa,
+    rawAttendance,
+    rawLmsActivity,
+    rawEngagement,
+    rawPlacementReadiness,
+    rawSkillsScore,
+    rawFeedbackScore,
+    rawBacklogs,
+    hasMetrics,
     academicIndex: academicIndex(s),
     placementIndex: placementIndex(s),
+    placementReadinessScore: pEval.readinessScore,
+    placementRiskScore: pEval.riskScore,
+    placementRiskReasons: pEval.reasons,
+    placementRiskBreakdown: pEval.breakdown,
     successScore: successScore(s),
-    academicRisk: academicRisk(s),
-    placementRisk: placementRisk(s),
+    academicRisk: aRisk,
+    placementRisk: pRisk,
     segment: segmentOf(s),
-    riskFactors: riskFactors(s),
+    riskFactors: rFactors,
     explanation: explainScore(s),
   };
 }

@@ -11,6 +11,11 @@ import {
 } from "./scoring";
 import { generateSuggestions } from "./interventions";
 import { callGemini, isGeminiConfigured } from "./gemini.server";
+import { OFFICIAL_STUDENTS } from "./official-dataset";
+import { normalizeDepartment, CANONICAL_DEPARTMENTS } from "./departments";
+import { getAuthoritativeDemoAttendanceMap } from "./attendance";
+import { getAuthoritativeAcademicsCgpaMap } from "./academics";
+import { resolveAuthenticatedStudent } from "./attendance.functions";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -111,20 +116,23 @@ export function computeAnalytics(students: Scored[]): AggregatedAnalytics {
   const byDepartment = depts
     .map((d) => {
       const list = students.filter((s) => s.department === d);
+      const measuredCgpa = list.filter((s) => s.rawCgpa !== null);
+      const measuredAtt = list.filter((s) => s.rawAttendance !== null);
+      const hasAnyMetrics = list.some((s) => s.hasMetrics);
       return {
         dept: d,
         count: list.length,
-        avgScore: Math.round(
-          list.reduce((a, s) => a + s.successScore, 0) / list.length,
-        ),
-        avgAtt: Math.round(
-          list.reduce((a, s) => a + s.attendance, 0) / list.length,
-        ),
-        avgCgpa: +(
-          list.reduce((a, s) => a + s.cgpa, 0) / list.length
-        ).toFixed(2),
+        avgScore: hasAnyMetrics
+          ? Math.round(list.reduce((a, s) => a + s.successScore, 0) / list.length)
+          : 0,
+        avgAtt: measuredAtt.length
+          ? Math.round(measuredAtt.reduce((a, s) => a + s.attendance, 0) / measuredAtt.length)
+          : 0,
+        avgCgpa: measuredCgpa.length
+          ? +(measuredCgpa.reduce((a, s) => a + s.cgpa, 0) / measuredCgpa.length).toFixed(2)
+          : 0,
         highRiskCount: list.filter(
-          (s) => s.academicRisk === "High" || s.placementRisk === "High",
+          (s) => s.hasMetrics && (s.academicRisk === "High" || s.placementRisk === "High"),
         ).length,
       };
     })
@@ -521,7 +529,7 @@ export const askInsights = createServerFn({ method: "POST" })
 
     // 2. STUDENT WORKFLOW: strictly personal data only
     if (userRole === "student") {
-      const { data: student, error: stErr } = await context.supabase
+      let { data: student, error: stErr } = await context.supabase
         .from("students")
         .select(
           "id, roll_no, name, department, year, cgpa, attendance, lms_activity, engagement, placement_readiness, skills_score, backlogs, user_id",
@@ -529,14 +537,61 @@ export const askInsights = createServerFn({ method: "POST" })
         .eq("user_id", context.userId)
         .maybeSingle();
 
-      if (stErr || !student) {
+      if (!student) {
+        const claimsEmail = (context.claims as any)?.email;
+        const resolved = await resolveAuthenticatedStudent(context.supabase, context.userId, claimsEmail);
+        if (resolved) {
+          const { data: fullStudent } = await context.supabase
+            .from("students")
+            .select(
+              "id, roll_no, name, department, year, cgpa, attendance, lms_activity, engagement, placement_readiness, skills_score, backlogs, user_id",
+            )
+            .eq("roll_no", resolved.roll_no)
+            .maybeSingle();
+
+          if (fullStudent) {
+            student = fullStudent;
+          } else {
+            const off = OFFICIAL_STUDENTS.find((s) => s.roll_no === resolved.roll_no);
+            if (off) {
+              student = {
+                id: resolved.id,
+                roll_no: off.roll_no,
+                name: off.name,
+                department: off.department,
+                year: off.year,
+                cgpa: off.cgpa,
+                attendance: off.attendance,
+                lms_activity: off.lms_activity,
+                engagement: off.engagement,
+                placement_readiness: off.placement_readiness,
+                skills_score: off.skills_score,
+                backlogs: off.backlogs,
+                user_id: context.userId,
+              };
+            }
+          }
+        }
+      }
+
+      if (!student) {
         return { reply: "", error: "Could not locate your linked student record." };
       }
 
       const { data: fb } = await context.supabase.rpc("student_feedback");
       const ownFeedback = fb?.[0]?.feedback_score ?? null;
+      const attMap = getAuthoritativeDemoAttendanceMap();
+      const academicsCgpaMap = getAuthoritativeAcademicsCgpaMap();
+      const authoritativeAtt =
+        student.attendance !== null && student.attendance !== undefined
+          ? Number(student.attendance)
+          : (attMap[student.roll_no] ?? attMap[student.id] ?? null);
+      const authoritativeCgpa = academicsCgpaMap[student.roll_no] ?? null;
+
       const scoredStudent = score({
         ...(student as unknown as StudentRow),
+        cgpa: authoritativeCgpa,
+        attendance: authoritativeAtt,
         feedback_score: ownFeedback,
       });
       const suggestions = generateSuggestions(scoredStudent);
@@ -633,23 +688,57 @@ export const askInsights = createServerFn({ method: "POST" })
 
     // 3. STAFF WORKFLOW: Faculty, Placement, Admin
     // Query actual authorized student cohort records
-    const { data: rows, error: qErr } = await context.supabase
+    let { data: rows, error: qErr } = await context.supabase
       .from("students")
       .select(
         "id, roll_no, name, department, year, cgpa, attendance, lms_activity, engagement, placement_readiness, skills_score, backlogs",
       );
 
-    if (qErr || !rows) {
-      return { reply: "", error: "Could not load institutional cohort data." };
+    let effectiveRows = (rows || []).filter((r: any) => !r.roll_no?.startsWith("KR2024"));
+    if (effectiveRows.length === 0) {
+      // Fallback to authoritative 275 students
+      effectiveRows = OFFICIAL_STUDENTS.map((s) => ({
+        id: `ust-${s.roll_no.toLowerCase()}`,
+        roll_no: s.roll_no,
+        name: s.name,
+        department: s.department,
+        year: s.year,
+        cgpa: null,
+        attendance: null,
+        lms_activity: null,
+        engagement: null,
+        placement_readiness: null,
+        skills_score: null,
+        feedback_score: null,
+        backlogs: null,
+      })) as any[];
+    } else {
+      effectiveRows = effectiveRows.map((r: any) => ({
+        ...r,
+        department: normalizeDepartment(r.department) || "Computer Engineering",
+      }));
     }
 
     const { data: fbRows } = await context.supabase.rpc("student_feedback");
     const fbMap = new Map((fbRows ?? []).map((r: any) => [r.id, r.feedback_score]));
+    const attMap = getAuthoritativeDemoAttendanceMap();
+    const academicsCgpaMap = getAuthoritativeAcademicsCgpaMap();
 
     // Authoritative scoring calculation
-    const scoredList = (rows as unknown as StudentRow[]).map((r) =>
-      score({ ...r, feedback_score: fbMap.get(r.id) ?? null }),
-    );
+    const scoredList = (effectiveRows as unknown as StudentRow[]).map((r) => {
+      const authoritativeAtt =
+        r.attendance !== null && r.attendance !== undefined
+          ? Number(r.attendance)
+          : (attMap[r.roll_no] ?? attMap[r.id] ?? null);
+      const authoritativeCgpa = academicsCgpaMap[r.roll_no] ?? null;
+
+      return score({
+        ...r,
+        cgpa: authoritativeCgpa,
+        attendance: authoritativeAtt,
+        feedback_score: fbMap.get(r.id) ?? null,
+      });
+    });
 
     const analytics = computeAnalytics(scoredList);
 

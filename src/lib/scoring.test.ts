@@ -4,6 +4,7 @@ import {
   dataCompleteness,
   academicIndex,
   placementIndex,
+  evaluatePlacementRisk,
   successScore,
   SCORING_CONFIG,
   type StudentRow,
@@ -31,15 +32,15 @@ describe("scoring", () => {
     expect(academicIndex(base)).toBe(78);
   });
 
-  it("computes placement index from readiness, skills, feedback", () => {
-    // readiness 70 × 0.50 = 35; skills 60 × 0.30 = 18; feedback 80 × 0.20 = 16 → 69
-    expect(placementIndex(base)).toBe(69);
+  it("computes placement index from multi-indicator model (CGPA, skills, interview, readiness, attendance)", () => {
+    // CGPA 8 (80) × 0.25 = 20; skills 60 × 0.25 = 15; interview 80 × 0.20 = 16; readiness 70 × 0.20 = 14; att 80 × 0.10 = 8 → 73
+    expect(placementIndex(base)).toBe(73);
   });
 
   it("computes success score from academic, placement, engagement", () => {
-    // 78 × 0.45 + 69 × 0.35 + 60 × 0.20 = 35.1 + 24.15 + 12 = 71.25 → 71
+    // 78 × 0.45 + 73 × 0.35 + 60 × 0.20 = 35.1 + 25.55 + 12 = 72.65 → 73
     const s = score(base);
-    expect(s.successScore).toBe(71);
+    expect(s.successScore).toBe(73);
   });
 
   it("flags high academic risk with 2+ backlogs", () => {
@@ -155,7 +156,15 @@ describe("scoring", () => {
         .segment,
     ).toBe("High Academic / Low Placement");
     expect(
-      score({ ...base, cgpa: 0, attendance: 0, lms_activity: 0, placement_readiness: 100 }).segment,
+      score({
+        ...base,
+        cgpa: 0,
+        attendance: 0,
+        lms_activity: 0,
+        placement_readiness: 100,
+        skills_score: 100,
+        feedback_score: 100,
+      }).segment,
     ).toBe("Low Academic / High Placement");
     expect(
       score({
@@ -199,10 +208,13 @@ describe("scoring", () => {
       1.0,
       5,
     );
-    expect(cfg.placement.readiness + cfg.placement.skills + cfg.placement.feedback).toBeCloseTo(
-      1.0,
-      5,
-    );
+    expect(
+      cfg.placement.cgpa +
+        cfg.placement.skills +
+        cfg.placement.interview +
+        cfg.placement.readiness +
+        cfg.placement.attendance,
+    ).toBeCloseTo(1.0, 5);
     expect(cfg.academicWeight + cfg.placementWeight + cfg.engagementWeight).toBeCloseTo(1.0, 5);
   });
 
@@ -215,14 +227,99 @@ describe("scoring", () => {
     expect(s.explanation.dataQuality).toBe("Complete");
   });
 
-  it("placementRisk boundary: exactly 45 is Medium not High", () => {
-    // Need exactly placementIndex = 45: e.g. readiness=90 × 0.5=45, skills=0, feedback=0
-    expect(
-      score({ ...base, placement_readiness: 90, skills_score: 0, feedback_score: 0 }).placementRisk,
-    ).toBe("Medium");
-    expect(
-      score({ ...base, placement_readiness: 88, skills_score: 0, feedback_score: 0 }).placementRisk,
-    ).toBe("High");
+  it("placementRisk boundary: exactly 50 is Medium not High, exactly 75 is Low not Medium", () => {
+    // Skills 50, interview 50, readiness 50, cgpa 5.0 (50), att 50 => R = 50 => Medium
+    const med50 = score({
+      ...base,
+      cgpa: 5.0,
+      skills_score: 50,
+      feedback_score: 50,
+      placement_readiness: 50,
+      attendance: 50,
+    });
+    expect(med50.placementRisk).toBe("Medium");
+    expect(med50.placementReadinessScore).toBe(50);
+    expect(med50.placementRiskScore).toBe(50);
+
+    // Below 50 is High
+    const high49 = score({
+      ...base,
+      cgpa: 4.9,
+      skills_score: 49,
+      feedback_score: 49,
+      placement_readiness: 49,
+      attendance: 49,
+    });
+    expect(high49.placementRisk).toBe("High");
+    expect(high49.placementReadinessScore).toBe(49);
+    expect(high49.placementRiskScore).toBe(51);
+
+    // At 75 is Low
+    const low75 = score({
+      ...base,
+      cgpa: 7.5,
+      skills_score: 75,
+      feedback_score: 75,
+      placement_readiness: 75,
+      attendance: 75,
+    });
+    expect(low75.placementRisk).toBe("Low");
+    expect(low75.placementReadinessScore).toBe(75);
+    expect(low75.placementRiskScore).toBe(25);
+  });
+
+  it("computes user recommended placement-risk model with exact example values", () => {
+    // CGPA 7.5 (G=75) × 0.25 = 18.75
+    // Skills 60 (T=60) × 0.25 = 15.00
+    // Interview 50 (I=50) × 0.20 = 10.00
+    // Readiness 70 (P=70) × 0.20 = 14.00
+    // Attendance 80 (C=80) × 0.10 = 8.00
+    // Total R = 65.75 → rounded to 65.8, Risk Score = 34.25 → rounded to 34.3 (Medium risk)
+    const exampleStudent: StudentRow = {
+      ...base,
+      cgpa: 7.5,
+      skills_score: 60,
+      feedback_score: 50,
+      placement_readiness: 70,
+      attendance: 80,
+    };
+    const evalRes = evaluatePlacementRisk(exampleStudent);
+    expect(evalRes.readinessScore).toBe(65.8);
+    expect(evalRes.riskScore).toBe(34.2);
+    expect(evalRes.riskLevel).toBe("Medium");
+    expect(evalRes.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("rescales weights when indicators are missing without assuming zero", () => {
+    // If only CGPA 8.0 (80) and attendance 90 are available (total active weight = 0.25 + 0.10 = 0.35)
+    // R = (0.25/0.35) * 80 + (0.10/0.35) * 90 = 57.14 + 25.71 = 82.86 → 82.9 (Low risk >= 75)
+    const partial: StudentRow = {
+      ...base,
+      cgpa: 8.0,
+      attendance: 90,
+      skills_score: null,
+      feedback_score: null,
+      placement_readiness: null,
+    };
+    const evalRes = evaluatePlacementRisk(partial);
+    expect(evalRes.readinessScore).toBe(82.9);
+    expect(evalRes.riskScore).toBe(17.1);
+    expect(evalRes.riskLevel).toBe("Low");
+  });
+
+  it("marks Insufficient Data when all 5 placement indicators are missing", () => {
+    const empty: StudentRow = {
+      ...base,
+      cgpa: null,
+      attendance: null,
+      skills_score: null,
+      feedback_score: null,
+      placement_readiness: null,
+    };
+    const evalRes = evaluatePlacementRisk(empty);
+    expect(evalRes.riskLevel).toBe("Insufficient Data");
+    expect(evalRes.readinessScore).toBeNull();
+    expect(evalRes.riskScore).toBeNull();
   });
 
   it("all missing fields → all zero output → score 0", () => {
