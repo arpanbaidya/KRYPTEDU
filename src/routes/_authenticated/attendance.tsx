@@ -269,6 +269,19 @@ function AttendancePage() {
 
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error" | "unsaved">("idle");
 
+  // Persist local marks changes to localStorage for safety
+  const persistDraftToStorage = useCallback(
+    (updatedMarks: Record<string, AttendanceStatus>) => {
+      try {
+        const storageKey = `kryptedu_att_draft_${normalizedDept}_${selectedDate}`;
+        localStorage.setItem(storageKey, JSON.stringify(updatedMarks));
+      } catch {
+        // ignore
+      }
+    },
+    [normalizedDept, selectedDate]
+  );
+
   // Only reset marks and pagination when user intentionally changes Department or Date
   useEffect(() => {
     setMarks({});

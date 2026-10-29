@@ -580,11 +580,30 @@ export function getStudentDemoMonthlyStats(rollNo: string): MonthlyAttendanceSta
   );
   if (stuIdx === -1) return [];
 
+  const stu = OFFICIAL_STUDENTS[stuIdx];
   const weekdays = getDemoPeriodWeekdays();
-  const records = weekdays.map((dateStr) => ({
-    attendance_date: dateStr,
-    status: deterministicDemoStatus(rollNo, dateStr, stuIdx),
-  }));
+  const records = weekdays.map((dateStr) => {
+    let status: AttendanceStatus | null = null;
+    if (typeof window !== "undefined") {
+      try {
+        const savedDraft = localStorage.getItem(`kryptedu_att_draft_${stu.department}_${dateStr}`);
+        if (savedDraft) {
+          const parsed = JSON.parse(savedDraft);
+          const sId = `ust-${stu.roll_no.toLowerCase()}`;
+          if (parsed[sId] || parsed[stu.roll_no]) {
+            status = parsed[sId] || parsed[stu.roll_no];
+          }
+        }
+      } catch {}
+    }
+    if (!status) {
+      status = deterministicDemoStatus(rollNo, dateStr, stuIdx);
+    }
+    return {
+      attendance_date: dateStr,
+      status,
+    };
+  });
 
   return calculateStudentMonthlyAttendance(records);
 }
