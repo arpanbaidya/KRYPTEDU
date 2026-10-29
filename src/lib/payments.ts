@@ -29,6 +29,9 @@ export interface StudentCourseFeeItem {
   currency: string;
   transactions_count: number;
   last_payment_date: string | null;
+  is_linked?: boolean;
+  linked_user_id?: string | null;
+  linked_user_email?: string | null;
 }
 
 export interface PaymentSummary {

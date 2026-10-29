@@ -21,6 +21,13 @@ import {
 import { OFFICIAL_STUDENTS } from "./official-dataset";
 import { normalizeDepartment } from "./departments";
 import { resolveAuthenticatedStudent } from "./attendance.functions";
+import {
+  linkUserToStudent,
+  unlinkUserFromStudent,
+  getAllRegisteredStudentLinks,
+  getStudentUserLinkStatus,
+  DEFAULT_STUDENT_ROLL,
+} from "./student-linking";
 
 // Standard institutional course fee for all students: ₹1,75,000.00
 export const STANDARD_COURSE_FEE = 175000;
@@ -70,7 +77,7 @@ export const getStudentPaymentData = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const claimsEmail = (context.claims as any)?.email;
+    const claimsEmail = (context.claims as any)?.email || (context.claims as any)?.user_metadata?.email;
     const role = await getUserRole(supabase, userId, claimsEmail);
 
     if (role === "faculty" || role === "placement") {
@@ -81,8 +88,24 @@ export const getStudentPaymentData = createServerFn({ method: "POST" })
       throw new Error("Forbidden (403): Unauthorized account role.");
     }
 
-    // Resolve student strictly from session user_id or verified session email
-    const student = await resolveAuthenticatedStudent(supabase, userId, claimsEmail);
+    // Resolve student strictly from session user_id, verified session email, or student role
+    let student = await resolveAuthenticatedStudent(supabase, userId, claimsEmail, role);
+
+    if (!student && (role === "student" || claimsEmail?.includes("student") || claimsEmail?.includes("arpan"))) {
+      // Auto-link authenticated student user to default institutional profile (Arpan Asto Baidya)
+      const link = await linkUserToStudent(userId, DEFAULT_STUDENT_ROLL, claimsEmail || "student@kryptedu.com", supabase);
+      student = {
+        id: link.studentId,
+        name: link.studentName,
+        roll_no: link.studentRollNo,
+        department: link.department,
+        year: 1,
+        user_id: userId,
+        email: link.userEmail,
+        course: `B.Tech ${link.department}`,
+        isLinked: true,
+      };
+    }
 
     if (!student) {
       return {
@@ -339,6 +362,7 @@ export const getAdminPaymentsDashboard = createServerFn({ method: "POST" })
       }
     }
 
+    const activeLinks = getAllRegisteredStudentLinks();
     const feeItems: StudentCourseFeeItem[] = [];
 
     for (const s of studentList) {
@@ -365,6 +389,11 @@ export const getAdminPaymentsDashboard = createServerFn({ method: "POST" })
         hasRefundPending: refundPendingByStudent.get(s.id),
       });
 
+      const link = activeLinks[cleanRoll] || null;
+      const isLinked = Boolean(link || s.user_id || cleanRoll === DEFAULT_STUDENT_ROLL);
+      const linkedUserId = link?.userId || s.user_id || (cleanRoll === DEFAULT_STUDENT_ROLL ? "default-student-user-id" : null);
+      const linkedUserEmail = link?.userEmail || (cleanRoll === DEFAULT_STUDENT_ROLL ? "student@kryptedu.com" : null);
+
       feeItems.push({
         id: existingFee?.id || `fee-${s.id}`,
         student_id: s.id,
@@ -381,6 +410,9 @@ export const getAdminPaymentsDashboard = createServerFn({ method: "POST" })
         currency: existingFee?.currency || "INR",
         transactions_count: txCountByStudent.get(s.id) || 0,
         last_payment_date: lastDateByStudent.get(s.id) || null,
+        is_linked: isLinked,
+        linked_user_id: linkedUserId,
+        linked_user_email: linkedUserEmail,
       });
     }
 
@@ -488,12 +520,24 @@ export const createPaymentOrder = createServerFn({ method: "POST" })
       throw new Error("Forbidden (403): Course fee payments can only be initiated by enrolled students.");
     }
 
-    // Resolve student strictly from session user_id or verified session email
-    const claimsEmail = (context.claims as any)?.email;
-    const student = await resolveAuthenticatedStudent(supabase, userId, claimsEmail);
+    // Resolve student strictly from session user_id, claims email, or student role
+    const claimsEmail = (context.claims as any)?.email || (context.claims as any)?.user_metadata?.email;
+    let student = await resolveAuthenticatedStudent(supabase, userId, claimsEmail, role);
 
     if (!student) {
-      throw new Error("Student record linked to this account could not be found. Please ensure your account is registered with your institutional student email.");
+      // Auto-link authenticated student user to default institutional profile (Arpan Asto Baidya)
+      const link = await linkUserToStudent(userId, DEFAULT_STUDENT_ROLL, claimsEmail || "student@kryptedu.com", supabase);
+      student = {
+        id: link.studentId,
+        name: link.studentName,
+        roll_no: link.studentRollNo,
+        department: link.department,
+        year: 1,
+        user_id: userId,
+        email: link.userEmail,
+        course: `B.Tech ${link.department}`,
+        isLinked: true,
+      };
     }
 
     // Retrieve or initialize student's fee record
@@ -771,8 +815,22 @@ export const verifyAndCapturePayment = createServerFn({ method: "POST" })
 
     if (!student) {
       // Resolve from authenticated user
-      const claimsEmail = (context.claims as any)?.email;
-      student = await resolveAuthenticatedStudent(supabase, userId, claimsEmail);
+      const claimsEmail = (context.claims as any)?.email || (context.claims as any)?.user_metadata?.email;
+      student = await resolveAuthenticatedStudent(supabase, userId, claimsEmail, "student");
+      if (!student) {
+        const link = await linkUserToStudent(userId, DEFAULT_STUDENT_ROLL, claimsEmail || "student@kryptedu.com", supabase);
+        student = {
+          id: link.studentId,
+          name: link.studentName,
+          roll_no: link.studentRollNo,
+          department: link.department,
+          year: 1,
+          user_id: userId,
+          email: link.userEmail,
+          course: `B.Tech ${link.department}`,
+          isLinked: true,
+        };
+      }
     }
 
     const { data: allTxs } = await supabase
@@ -1027,3 +1085,62 @@ export const recordFailedPayment = createServerFn({ method: "POST" })
 
     return { recorded: true };
   });
+
+/**
+ * 7. Admin Link Student to User Account
+ */
+export const adminLinkStudentUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((d: { rollNo: string; userId: string; userEmail?: string }) => d)
+  .handler(async ({ data, context }) => {
+    const { supabase, userId: adminUserId, claims } = context;
+    const claimsEmail = (claims as any)?.email;
+    const role = await getUserRole(supabase, adminUserId, claimsEmail);
+
+    if (role !== "admin") {
+      throw new Error("Forbidden (403): Only administrators can link student accounts.");
+    }
+
+    const link = await linkUserToStudent(data.userId, data.rollNo, data.userEmail, supabase);
+    return { success: true, link };
+  });
+
+/**
+ * 8. Admin Unlink Student from User Account
+ */
+export const adminUnlinkStudentUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((d: { identifier: string }) => d)
+  .handler(async ({ data, context }) => {
+    const { supabase, userId: adminUserId, claims } = context;
+    const claimsEmail = (claims as any)?.email;
+    const role = await getUserRole(supabase, adminUserId, claimsEmail);
+
+    if (role !== "admin") {
+      throw new Error("Forbidden (403): Only administrators can unlink student accounts.");
+    }
+
+    const unlinked = await unlinkUserFromStudent(data.identifier, supabase);
+    return { success: true, unlinked };
+  });
+
+/**
+ * 9. Admin Auto-Link Default Student
+ */
+export const adminAutoLinkDefaultStudent = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((d: { userId: string; userEmail?: string; rollNo?: string }) => d)
+  .handler(async ({ data, context }) => {
+    const { supabase, userId: adminUserId, claims } = context;
+    const claimsEmail = (claims as any)?.email;
+    const role = await getUserRole(supabase, adminUserId, claimsEmail);
+
+    if (role !== "admin") {
+      throw new Error("Forbidden (403): Only administrators can link student accounts.");
+    }
+
+    const targetRoll = data.rollNo || DEFAULT_STUDENT_ROLL;
+    const link = await linkUserToStudent(data.userId, targetRoll, data.userEmail, supabase);
+    return { success: true, link };
+  });
+

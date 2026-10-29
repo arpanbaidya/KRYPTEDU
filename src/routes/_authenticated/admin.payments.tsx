@@ -38,6 +38,9 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   getAdminPaymentsDashboard,
   updateStudentCourseFee,
+  adminLinkStudentUser,
+  adminUnlinkStudentUser,
+  adminAutoLinkDefaultStudent,
 } from "@/lib/payments.functions";
 import {
   formatINR,
@@ -47,6 +50,7 @@ import {
   type PaymentTransactionItem,
 } from "@/lib/payments";
 import { CANONICAL_DEPARTMENTS } from "@/lib/departments";
+import { OFFICIAL_STUDENTS } from "@/lib/official-dataset";
 
 export const Route = createFileRoute("/_authenticated/admin/payments")({
   head: () => ({
@@ -123,6 +127,68 @@ function AdminPaymentManagementPage() {
   const [selectedStudentForReceipt, setSelectedStudentForReceipt] = useState<StudentCourseFeeItem | null>(null);
   const [selectedTxForReceipt, setSelectedTxForReceipt] = useState<PaymentTransactionItem | null>(null);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+
+  // Student Linking Modal State
+  const [selectedStudentForLink, setSelectedStudentForLink] = useState<StudentCourseFeeItem | null>(null);
+  const [selectedUserForLink, setSelectedUserForLink] = useState<any | null>(null);
+  const [selectedUserIdToLink, setSelectedUserIdToLink] = useState<string>("");
+  const [selectedRollNoToLink, setSelectedRollNoToLink] = useState<string>("");
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+  const [isAssignStudentModalOpen, setIsAssignStudentModalOpen] = useState(false);
+
+  const linkMutation = useMutation({
+    mutationFn: (payload: { rollNo: string; userId: string; userEmail?: string }) =>
+      adminLinkStudentUser({ data: payload }),
+    onSuccess: () => {
+      toast.success("Student profile linked to user account successfully.");
+      setIsLinkModalOpen(false);
+      setIsAssignStudentModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["admin-payments-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["admin_users"] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to link student account.");
+    },
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: (identifier: string) => adminUnlinkStudentUser({ data: { identifier } }),
+    onSuccess: () => {
+      toast.success("Account link removed successfully.");
+      setIsLinkModalOpen(false);
+      setIsAssignStudentModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["admin-payments-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["admin_users"] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to unlink account.");
+    },
+  });
+
+  const autoLinkMutation = useMutation({
+    mutationFn: (payload: { userId: string; userEmail?: string; rollNo?: string }) =>
+      adminAutoLinkDefaultStudent({ data: payload }),
+    onSuccess: () => {
+      toast.success("Default student (Arpan Baidya, UST24R0102020) linked successfully.");
+      queryClient.invalidateQueries({ queryKey: ["admin-payments-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["admin_users"] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to auto-link student.");
+    },
+  });
+
+  const handleOpenLinkForStudent = (student: StudentCourseFeeItem) => {
+    setSelectedStudentForLink(student);
+    setSelectedUserIdToLink(student.linked_user_id || "");
+    setIsLinkModalOpen(true);
+  };
+
+  const handleOpenAssignStudent = (user: any) => {
+    setSelectedUserForLink(user);
+    setSelectedRollNoToLink("");
+    setIsAssignStudentModalOpen(true);
+  };
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
@@ -326,9 +392,41 @@ function AdminPaymentManagementPage() {
                 Assign and manage institutional security roles for student, faculty, and administrative accounts.
               </p>
             </div>
-            <Badge variant="outline" className="text-xs">
-              {users?.length ?? 0} registered accounts
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">
+                {users?.length ?? 0} registered accounts
+              </Badge>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const studentUser = users?.find(
+                    (u: any) =>
+                      u.role === "student" ||
+                      u.email?.includes("student") ||
+                      u.email?.includes("arpan")
+                  );
+                  if (studentUser) {
+                    autoLinkMutation.mutate({
+                      userId: studentUser.user_id,
+                      userEmail: studentUser.email,
+                    });
+                  } else if (users && users.length > 0) {
+                    autoLinkMutation.mutate({
+                      userId: users[0].user_id,
+                      userEmail: users[0].email,
+                    });
+                  } else {
+                    toast.info("No registered users found to link.");
+                  }
+                }}
+                disabled={autoLinkMutation.isPending}
+                className="gap-1.5 rounded-xl text-xs bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 font-medium"
+              >
+                <CheckCircle2 className="size-3.5 text-emerald-600" />
+                Auto-Link Default Student (Arpan Baidya)
+              </Button>
+            </div>
           </div>
 
           {isUsersLoading ? (
@@ -342,43 +440,101 @@ function AdminPaymentManagementPage() {
                 <thead className="border-b bg-secondary/30 text-xs font-semibold uppercase text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3">Email Address</th>
-                    <th className="px-4 py-3">Current Role</th>
+                    <th className="px-4 py-3">Security Role</th>
+                    <th className="px-4 py-3">Linked Student Profile</th>
                     <th className="px-4 py-3 text-right">Assign Role</th>
+                    <th className="px-4 py-3 text-right">Student Link</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {users?.map((u: any) => (
-                    <tr key={u.id} className="hover:bg-secondary/20 transition-colors">
-                      <td className="px-4 py-3.5 font-medium text-foreground">{u.email}</td>
-                      <td className="px-4 py-3.5">
-                        <Badge
-                          variant={u.role === "admin" ? "default" : "outline"}
-                          className="capitalize text-xs"
-                        >
-                          {u.role}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <select
-                          value={u.role}
-                          onChange={(e) =>
-                            updateRoleMutation.mutate({ userId: u.user_id, newRole: e.target.value })
-                          }
-                          className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary"
-                          disabled={updateRoleMutation.isPending}
-                        >
-                          <option value="admin">Admin</option>
-                          <option value="faculty">Faculty</option>
-                          <option value="placement">Placement Officer</option>
-                          <option value="student">Student</option>
-                          <option value="pending">Pending Approval</option>
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
+                  {users?.map((u: any) => {
+                    const linkedFeeItem = data?.feeItems?.find(
+                      (f) =>
+                        f.linked_user_id === u.user_id ||
+                        f.linked_user_email?.toLowerCase() === u.email?.toLowerCase() ||
+                        ((u.email === "student@kryptedu.com" || u.role === "student") &&
+                          f.student_roll_no === "UST24R0102020")
+                    );
+
+                    return (
+                      <tr key={u.id} className="hover:bg-secondary/20 transition-colors">
+                        <td className="px-4 py-3.5 font-medium text-foreground">{u.email}</td>
+                        <td className="px-4 py-3.5">
+                          <Badge
+                            variant={u.role === "admin" ? "default" : "outline"}
+                            className="capitalize text-xs"
+                          >
+                            {u.role}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {linkedFeeItem ? (
+                            <div className="space-y-0.5">
+                              <div className="font-semibold text-foreground flex items-center gap-1.5">
+                                <span>{linkedFeeItem.student_name}</span>
+                                <Badge className="bg-emerald-600/15 text-emerald-700 border-emerald-500/30 text-[10px] py-0 px-1.5 font-semibold">
+                                  Linked · Active
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-muted-foreground font-mono">
+                                {linkedFeeItem.student_roll_no} · {linkedFeeItem.student_dept}
+                              </div>
+                            </div>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="text-amber-700 border-amber-300 bg-amber-500/10 text-xs"
+                            >
+                              <AlertCircle className="size-3 text-amber-600 mr-1" /> Not Linked
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <select
+                            value={u.role}
+                            onChange={(e) =>
+                              updateRoleMutation.mutate({ userId: u.user_id, newRole: e.target.value })
+                            }
+                            className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary"
+                            disabled={updateRoleMutation.isPending}
+                          >
+                            <option value="admin">Admin</option>
+                            <option value="faculty">Faculty</option>
+                            <option value="placement">Placement Officer</option>
+                            <option value="student">Student</option>
+                            <option value="pending">Pending Approval</option>
+                          </select>
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleOpenAssignStudent(u)}
+                              className="h-8 rounded-xl text-xs gap-1"
+                            >
+                              <GraduationCap className="size-3.5 text-primary" />
+                              {linkedFeeItem ? "Change" : "Link Student"}
+                            </Button>
+                            {linkedFeeItem && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => unlinkMutation.mutate(linkedFeeItem.student_roll_no)}
+                                disabled={unlinkMutation.isPending}
+                                className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                Unlink
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {users?.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="py-8 text-center text-xs text-muted-foreground">
+                      <td colSpan={5} className="py-8 text-center text-xs text-muted-foreground">
                         No user accounts registered.
                       </td>
                     </tr>
@@ -449,20 +605,21 @@ function AdminPaymentManagementPage() {
                     <th className="px-4 py-3.5 text-right">Remaining Balance</th>
                     <th className="px-4 py-3.5 text-center">Paid / Not Mark</th>
                     <th className="px-4 py-3.5 text-center">Receipt Section</th>
+                    <th className="px-4 py-3.5 text-center">Account Link</th>
                     <th className="px-5 py-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                      <td colSpan={9} className="py-12 text-center text-muted-foreground">
                         <RefreshCw className="mx-auto size-6 animate-spin text-primary" />
                         <p className="mt-2 text-xs">Loading student course fees ledger...</p>
                       </td>
                     </tr>
                   ) : filteredStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                      <td colSpan={9} className="py-12 text-center text-muted-foreground">
                         <CreditCard className="mx-auto size-8 text-subtle" />
                         <p className="mt-2 font-medium">No matching student payment records</p>
                         <p className="text-xs text-subtle">Try adjusting your search query or department filter.</p>
@@ -539,17 +696,55 @@ function AdminPaymentManagementPage() {
                             )}
                           </td>
 
-                          {/* 8. Admin Actions */}
+                          {/* 8. Account Link Status */}
+                          <td className="px-4 py-4 text-center">
+                            {item.is_linked ? (
+                              <div className="inline-flex flex-col items-center">
+                                <Badge className="bg-emerald-600/15 text-emerald-700 border-emerald-500/30 gap-1 font-semibold text-xs py-0.5">
+                                  <CheckCircle2 className="size-3 text-emerald-600" /> Linked · Active
+                                </Badge>
+                                {item.linked_user_email && (
+                                  <span
+                                    className="text-[10px] text-muted-foreground mt-0.5 truncate max-w-[120px]"
+                                    title={item.linked_user_email}
+                                  >
+                                    {item.linked_user_email}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="text-amber-700 border-amber-300 bg-amber-500/10 gap-1 font-medium text-xs py-0.5"
+                              >
+                                <AlertCircle className="size-3 text-amber-600" /> Unlinked
+                              </Badge>
+                            )}
+                          </td>
+
+                          {/* 9. Admin Actions */}
                           <td className="px-5 py-4 text-right">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleOpenEditFee(item)}
-                              className="h-8 gap-1 rounded-xl text-xs text-muted-foreground hover:text-foreground"
-                            >
-                              <Edit2 className="size-3.5" />
-                              Adjust Fee
-                            </Button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleOpenLinkForStudent(item)}
+                                className="h-8 gap-1 rounded-xl text-xs"
+                                title="Link or change registered user account"
+                              >
+                                <Users className="size-3.5 text-primary" />
+                                {item.is_linked ? "Link" : "Connect"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleOpenEditFee(item)}
+                                className="h-8 gap-1 rounded-xl text-xs text-muted-foreground hover:text-foreground"
+                              >
+                                <Edit2 className="size-3.5" />
+                                Adjust Fee
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -925,6 +1120,193 @@ function AdminPaymentManagementPage() {
               className="rounded-xl text-xs font-semibold"
             >
               {updateFeeMutation.isPending ? "Recording Audit..." : "Save & Audit"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Student to User Account Link Modal */}
+      <Dialog open={isLinkModalOpen} onOpenChange={setIsLinkModalOpen}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="size-5 text-primary" />
+              Link User Account to Student Profile
+            </DialogTitle>
+            <DialogDescription>
+              Connect {selectedStudentForLink?.student_name} ({selectedStudentForLink?.student_roll_no}) to an authenticated user account for portal login access.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedStudentForLink && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-xl bg-secondary/30 p-3 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Student Name:</span>
+                  <span className="font-semibold text-foreground">{selectedStudentForLink.student_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Roll Number:</span>
+                  <span className="font-mono font-semibold text-primary">{selectedStudentForLink.student_roll_no}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Department:</span>
+                  <span className="font-semibold text-foreground">{selectedStudentForLink.student_dept}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Current Status:</span>
+                  <span>
+                    {selectedStudentForLink.is_linked ? (
+                      <Badge className="bg-emerald-600/15 text-emerald-700 text-[10px] py-0">Linked · Active</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-amber-700 border-amber-300 text-[10px] py-0">Unlinked</Badge>
+                    )}
+                  </span>
+                </div>
+                {selectedStudentForLink.linked_user_email && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Linked User Email:</span>
+                    <span className="font-mono text-foreground">{selectedStudentForLink.linked_user_email}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Select Registered User Account</label>
+                <select
+                  value={selectedUserIdToLink}
+                  onChange={(e) => setSelectedUserIdToLink(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground shadow-sm outline-none"
+                >
+                  <option value="">-- Choose an account to connect --</option>
+                  {users?.map((u: any) => (
+                    <option key={u.user_id} value={u.user_id}>
+                      {u.email} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0 justify-between">
+            {selectedStudentForLink?.is_linked ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => unlinkMutation.mutate(selectedStudentForLink.student_roll_no)}
+                disabled={unlinkMutation.isPending}
+                className="rounded-xl text-xs"
+              >
+                {unlinkMutation.isPending ? "Unlinking..." : "Unlink Profile"}
+              </Button>
+            ) : <div />}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsLinkModalOpen(false)}
+                className="rounded-xl text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (!selectedStudentForLink) return;
+                  if (!selectedUserIdToLink) {
+                    toast.error("Please select a user account to connect.");
+                    return;
+                  }
+                  const chosenUser = users?.find((u: any) => u.user_id === selectedUserIdToLink);
+                  linkMutation.mutate({
+                    rollNo: selectedStudentForLink.student_roll_no,
+                    userId: selectedUserIdToLink,
+                    userEmail: chosenUser?.email,
+                  });
+                }}
+                disabled={linkMutation.isPending}
+                className="rounded-xl text-xs font-semibold"
+              >
+                {linkMutation.isPending ? "Connecting..." : "Confirm & Link"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Student Profile Modal */}
+      <Dialog open={isAssignStudentModalOpen} onOpenChange={setIsAssignStudentModalOpen}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GraduationCap className="size-5 text-primary" />
+              Assign Student Profile
+            </DialogTitle>
+            <DialogDescription>
+              Assign an official institutional student record to {selectedUserForLink?.email}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedUserForLink && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-xl bg-secondary/30 p-3 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">User Email:</span>
+                  <span className="font-semibold text-foreground">{selectedUserForLink.email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">User ID:</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">{selectedUserForLink.user_id}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Select Student Profile (From 275 Official Students)</label>
+                <select
+                  value={selectedRollNoToLink}
+                  onChange={(e) => setSelectedRollNoToLink(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground shadow-sm outline-none"
+                >
+                  <option value="">-- Choose official student profile --</option>
+                  <option value="UST24R0102020">Arpan Asto Baidya (UST24R0102020) - Computer Engineering [Default Student]</option>
+                  {OFFICIAL_STUDENTS.filter(s => s.roll_no !== "UST24R0102020").map((s) => (
+                    <option key={s.roll_no} value={s.roll_no}>
+                      {s.name} ({s.roll_no}) - {s.department}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsAssignStudentModalOpen(false)}
+              className="rounded-xl text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!selectedUserForLink) return;
+                if (!selectedRollNoToLink) {
+                  toast.error("Please select a student record to connect.");
+                  return;
+                }
+                linkMutation.mutate({
+                  rollNo: selectedRollNoToLink,
+                  userId: selectedUserForLink.user_id,
+                  userEmail: selectedUserForLink.email,
+                });
+              }}
+              disabled={linkMutation.isPending}
+              className="rounded-xl text-xs font-semibold"
+            >
+              {linkMutation.isPending ? "Connecting..." : "Assign & Link"}
             </Button>
           </DialogFooter>
         </DialogContent>

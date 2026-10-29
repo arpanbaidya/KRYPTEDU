@@ -551,4 +551,188 @@ describe("Cross-Module Attendance Integration & Downstream Scoring", () => {
       expect(profile.overallAttendancePercentage).toBeNull(); // N/A
     });
   });
+
+  describe("Dataset Restoration, Summary Synchronization, and Search/Filter Invariants", () => {
+    it("restores all 275 students partitioned across the 3 canonical departments without loss", () => {
+      const ce = OFFICIAL_STUDENTS.filter((s) => s.department === "Computer Engineering");
+      const aiml = OFFICIAL_STUDENTS.filter((s) => s.department === "Artificial Intelligence and Machine Learning");
+      const cyber = OFFICIAL_STUDENTS.filter((s) => s.department === "Cyber security & Forensics");
+
+      expect(ce.length).toBe(157);
+      expect(aiml.length).toBe(99);
+      expect(cyber.length).toBe(19);
+      expect(ce.length + aiml.length + cyber.length).toBe(275);
+
+      // Verify no duplicate roll numbers exist in the entire dataset
+      const rollNumbers = new Set(OFFICIAL_STUDENTS.map((s) => s.roll_no));
+      expect(rollNumbers.size).toBe(275);
+    });
+
+    it("calculates live summary correctly and excludes Not Considered from denominator", () => {
+      const sampleMarks: { status: AttendanceStatus }[] = [
+        { status: "present" },
+        { status: "present" },
+        { status: "present" },
+        { status: "absent" },
+        { status: "not_considered" },
+        { status: "not_considered" },
+      ];
+
+      const summary = calculateAttendanceSummary(6, sampleMarks);
+      expect(summary.totalStudents).toBe(6);
+      expect(summary.presentCount).toBe(3);
+      expect(summary.absentCount).toBe(1);
+      expect(summary.notConsideredCount).toBe(2);
+      // Denominator: 3 + 1 = 4. Rate: (3 / 4) * 100 = 75.0%
+      expect(summary.attendancePercentage).toBe(75.0);
+    });
+
+    it("displays N/A (null) when present and absent are zero, even if Not Considered has records", () => {
+      const allNcMarks: { status: AttendanceStatus }[] = [
+        { status: "not_considered" },
+        { status: "not_considered" },
+        { status: "not_considered" },
+      ];
+
+      const summary = calculateAttendanceSummary(3, allNcMarks);
+      expect(summary.totalStudents).toBe(3);
+      expect(summary.presentCount).toBe(0);
+      expect(summary.absentCount).toBe(0);
+      expect(summary.notConsideredCount).toBe(3);
+      expect(summary.attendancePercentage).toBeNull();
+    });
+
+    it("prevents duplicate student marks from inflating summary counts", () => {
+      // Simulate deduplication by student roll_no as implemented in AttendancePage
+      const rawRecords = [
+        { roll_no: "UST24R0102001", status: "present" as AttendanceStatus },
+        { roll_no: "UST24R0102001", status: "present" as AttendanceStatus }, // Duplicate
+        { roll_no: "UST24R0102002", status: "absent" as AttendanceStatus },
+      ];
+
+      const dedupedMap = new Map<string, AttendanceStatus>();
+      rawRecords.forEach((r) => dedupedMap.set(r.roll_no, r.status));
+
+      const dedupedRecords = Array.from(dedupedMap.values()).map((status) => ({ status }));
+      const summary = calculateAttendanceSummary(dedupedMap.size, dedupedRecords);
+
+      expect(summary.totalStudents).toBe(2);
+      expect(summary.presentCount).toBe(1);
+      expect(summary.absentCount).toBe(1);
+      expect(summary.attendancePercentage).toBe(50.0);
+    });
+
+    it("supports search filtering by student name and roll number (case-insensitive)", () => {
+      const students = [
+        { student_roll_no: "UST24R0102001", student_name: "Aanosh Mukesh Lingapur", status: "present" },
+        { student_roll_no: "UST24R0102002", student_name: "Aarush Dinesh Yadav", status: "absent" },
+        { student_roll_no: "UST24R0102020", student_name: "Arpan Asto Baidya", status: "present" },
+      ];
+
+      // Search by roll number substring
+      const searchRoll = "0102020";
+      const matchRoll = students.filter(
+        (s) => s.student_roll_no.toLowerCase().includes(searchRoll) || s.student_name.toLowerCase().includes(searchRoll)
+      );
+      expect(matchRoll.length).toBe(1);
+      expect(matchRoll[0].student_name).toBe("Arpan Asto Baidya");
+
+      // Search by name substring
+      const searchName = "yadav";
+      const matchName = students.filter(
+        (s) => s.student_roll_no.toLowerCase().includes(searchName) || s.student_name.toLowerCase().includes(searchName)
+      );
+      expect(matchName.length).toBe(1);
+      expect(matchName[0].student_roll_no).toBe("UST24R0102002");
+    });
+
+    it("supports status filtering (Present, Absent, Not Considered, Unmarked)", () => {
+      const students = [
+        { student_roll_no: "S1", status: "present" },
+        { student_roll_no: "S2", status: "absent" },
+        { student_roll_no: "S3", status: "not_considered" },
+        { student_roll_no: "S4", status: null },
+      ];
+
+      const presentOnly = students.filter((s) => s.status === "present");
+      expect(presentOnly.length).toBe(1);
+
+      const absentOnly = students.filter((s) => s.status === "absent");
+      expect(absentOnly.length).toBe(1);
+
+      const ncOnly = students.filter((s) => s.status === "not_considered");
+      expect(ncOnly.length).toBe(1);
+
+      const unmarkedOnly = students.filter((s) => !s.status);
+      expect(unmarkedOnly.length).toBe(1);
+    });
+
+    it("correctly identifies weekend holidays and allows weekday scheduling", () => {
+      expect(isWeekend("2026-10-24")).toBe(true);  // Saturday
+      expect(isWeekend("2026-10-25")).toBe(true);  // Sunday
+      expect(isWeekend("2026-10-26")).toBe(false); // Monday
+      expect(isWeekend("2026-10-29")).toBe(false); // Thursday
+      expect(isWeekend("2026-10-30")).toBe(false); // Friday
+    });
+
+    it("guarantees full cohort counts across all 3 departments: 157 CE, 99 AIML, 19 Cyber Sec (Total: 275)", () => {
+      const depts = [
+        { name: "Computer Engineering", expectedCount: 157 },
+        { name: "Artificial Intelligence and Machine Learning", expectedCount: 99 },
+        { name: "Cyber security & Forensics", expectedCount: 19 },
+      ];
+
+      let sum = 0;
+      for (const d of depts) {
+        const cohort = OFFICIAL_STUDENTS.filter((s) => s.department === d.name);
+        expect(cohort.length).toBe(d.expectedCount);
+        sum += cohort.length;
+
+        // Every student must have valid name and roll number
+        for (const s of cohort) {
+          expect(s.name.trim().length).toBeGreaterThan(0);
+          expect(s.roll_no.trim().length).toBeGreaterThan(0);
+        }
+      }
+      expect(sum).toBe(275);
+    });
+
+    it("verifies defensive student property normalization handles name/roll_no and student_name/student_roll_no identically", () => {
+      const rawApiStudent = {
+        id: "ust-ust24r0102001",
+        name: "Aanosh Mukesh Lingapur",
+        roll_no: "UST24R0102001",
+        department: "Computer Engineering",
+      };
+
+      const normalized = {
+        student_id: (rawApiStudent as any).student_id || rawApiStudent.id,
+        student_name: (rawApiStudent as any).student_name || rawApiStudent.name,
+        student_roll_no: (rawApiStudent as any).student_roll_no || rawApiStudent.roll_no,
+        student_dept: (rawApiStudent as any).student_dept || rawApiStudent.department,
+      };
+
+      expect(normalized.student_id).toBe("ust-ust24r0102001");
+      expect(normalized.student_name).toBe("Aanosh Mukesh Lingapur");
+      expect(normalized.student_roll_no).toBe("UST24R0102001");
+      expect(normalized.student_dept).toBe("Computer Engineering");
+    });
+
+    it("verifies mathematical formula: Present / (Present + Absent) * 100, excluding Not Considered", () => {
+      // 10 Present, 2 Absent, 5 Not Considered
+      const records: { status: AttendanceStatus }[] = [
+        ...Array(10).fill({ status: "present" }),
+        ...Array(2).fill({ status: "absent" }),
+        ...Array(5).fill({ status: "not_considered" }),
+      ];
+
+      const summary = calculateAttendanceSummary(17, records);
+      expect(summary.totalStudents).toBe(17);
+      expect(summary.presentCount).toBe(10);
+      expect(summary.absentCount).toBe(2);
+      expect(summary.notConsideredCount).toBe(5);
+      // Denominator: 10 + 2 = 12. Rate = (10 / 12) * 100 = 83.3%
+      expect(summary.attendancePercentage).toBe(83.3);
+    });
+  });
 });

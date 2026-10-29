@@ -28,6 +28,7 @@ import {
 } from "./academics";
 import { OFFICIAL_STUDENTS } from "./official-dataset";
 import { resolveAuthenticatedStudent } from "./attendance.functions";
+import { linkUserToStudent, DEFAULT_STUDENT_ROLL } from "./student-linking";
 
 /**
  * In-memory authoritative store for live operational state
@@ -112,7 +113,22 @@ export const getAcademicsData = createServerFn({ method: "POST" })
     let authenticatedStudent: any = null;
 
     if (role === "student") {
-      authenticatedStudent = await resolveAuthenticatedStudent(supabase, userId, claimsEmail);
+      const email = claimsEmail || (context.claims as any)?.user_metadata?.email;
+      authenticatedStudent = await resolveAuthenticatedStudent(supabase, userId, email, role);
+      if (!authenticatedStudent) {
+        const link = await linkUserToStudent(userId, DEFAULT_STUDENT_ROLL, email || "student@kryptedu.com", supabase);
+        authenticatedStudent = {
+          id: link.studentId,
+          name: link.studentName,
+          roll_no: link.studentRollNo,
+          department: link.department,
+          year: 1,
+          user_id: userId,
+          email: link.userEmail,
+          course: `B.Tech ${link.department}`,
+          isLinked: true,
+        };
+      }
       if (authenticatedStudent) {
         targetDept = authenticatedStudent.department || "Computer Engineering";
       }

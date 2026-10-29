@@ -16,7 +16,8 @@ export function isCanonicalDepartment(dept: string): dept is CanonicalDepartment
   return (CANONICAL_DEPARTMENTS as readonly string[]).includes(dept);
 }
 
-export function normalizeDepartment(raw: string): CanonicalDepartment | null {
+export function normalizeDepartment(raw?: string | null): CanonicalDepartment | null {
+  if (!raw || typeof raw !== "string") return null;
   const trimmed = raw.trim();
   if (isCanonicalDepartment(trimmed)) return trimmed;
   if (/computer/i.test(trimmed)) return "Computer Engineering";
