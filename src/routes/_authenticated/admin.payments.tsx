@@ -690,21 +690,20 @@ function AdminPaymentManagementPage() {
                     <th className="px-4 py-3.5 text-right">Remaining Balance</th>
                     <th className="px-4 py-3.5 text-center">Paid / Not Mark</th>
                     <th className="px-4 py-3.5 text-center">Receipt Section</th>
-                    <th className="px-4 py-3.5 text-center">Account Link</th>
                     <th className="px-5 py-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-muted-foreground">
+                      <td colSpan={8} className="py-12 text-center text-muted-foreground">
                         <RefreshCw className="mx-auto size-6 animate-spin text-primary" />
                         <p className="mt-2 text-xs">Loading student course fees ledger...</p>
                       </td>
                     </tr>
                   ) : filteredStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-muted-foreground">
+                      <td colSpan={8} className="py-12 text-center text-muted-foreground">
                         <CreditCard className="mx-auto size-8 text-subtle" />
                         <p className="mt-2 font-medium">No matching student payment records</p>
                         <p className="text-xs text-subtle">Try adjusting your search query or department filter.</p>
@@ -788,55 +787,17 @@ function AdminPaymentManagementPage() {
                             )}
                           </td>
 
-                          {/* 8. Account Link Status */}
-                          <td className="px-4 py-4 text-center">
-                            {item.is_linked ? (
-                              <div className="inline-flex flex-col items-center">
-                                <Badge className="bg-emerald-600/15 text-emerald-700 border-emerald-500/30 gap-1 font-semibold text-xs py-0.5">
-                                  <CheckCircle2 className="size-3 text-emerald-600" /> Linked · Active
-                                </Badge>
-                                {item.linked_user_email && (
-                                  <span
-                                    className="text-[10px] text-muted-foreground mt-0.5 truncate max-w-[120px]"
-                                    title={item.linked_user_email}
-                                  >
-                                    {item.linked_user_email}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <Badge
-                                variant="outline"
-                                className="text-amber-700 border-amber-300 bg-amber-500/10 gap-1 font-medium text-xs py-0.5"
-                              >
-                                <AlertCircle className="size-3 text-amber-600" /> Unlinked
-                              </Badge>
-                            )}
-                          </td>
-
-                          {/* 9. Admin Actions */}
+                          {/* 8. Admin Actions */}
                           <td className="px-5 py-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleOpenLinkForStudent(item)}
-                                className="h-8 gap-1 rounded-xl text-xs"
-                                title="Link or change registered user account"
-                              >
-                                <Users className="size-3.5 text-primary" />
-                                {item.is_linked ? "Link" : "Connect"}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleOpenEditFee(item)}
-                                className="h-8 gap-1 rounded-xl text-xs text-muted-foreground hover:text-foreground"
-                              >
-                                <Edit2 className="size-3.5" />
-                                Adjust Fee
-                              </Button>
-                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleOpenEditFee(item)}
+                              className="h-8 gap-1 rounded-xl text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              <Edit2 className="size-3.5" />
+                              Adjust Fee
+                            </Button>
                           </td>
                         </tr>
                       );
