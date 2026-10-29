@@ -860,12 +860,6 @@ function AttendancePage() {
                   <Clock className="size-3" /> Draft / Unsaved
                 </Badge>
               )}
-
-              {activeAttendance?.isDemo && (
-                <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/60 px-2 py-0.5 rounded-md">
-                  DEMO
-                </span>
-              )}
             </div>
           </div>
 
