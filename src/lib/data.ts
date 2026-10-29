@@ -23,6 +23,22 @@ const fallbackStudents: StudentRow[] = OFFICIAL_STUDENTS.map((s) => ({
   backlogs: null,
 }));
 
+let _feedbackRpcSupported: boolean | null = null;
+
+function hasClientAuthToken(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.includes("auth-token") || k.startsWith("sb-"))) {
+        const val = JSON.parse(localStorage.getItem(k) || "{}");
+        if (val?.access_token) return true;
+      }
+    }
+  } catch {}
+  return false;
+}
+
 /**
  * Central query for the scored student list.
  * - Prioritizes official dataset and database records.
@@ -36,7 +52,41 @@ export const studentsQuery = queryOptions({
   staleTime: 60_000, // 1 minute client caching for instant page transitions
   gcTime: 5 * 60_000,
   queryFn: async (): Promise<Scored[]> => {
+    const attMap = getAuthoritativeDemoAttendanceMap();
+    const academicsCgpaMap = getAuthoritativeAcademicsCgpaMap();
+
+    // Fast path for unauthenticated / demo sessions: avoids 1.4s 42501 permission denied network penalty
+    if (typeof window !== "undefined" && !hasClientAuthToken()) {
+      return fallbackStudents.map((s) => {
+        const rNo = s.roll_no?.toUpperCase();
+        const ustId = rNo ? `ust-${rNo.toLowerCase()}` : s.id;
+        return score({
+          ...s,
+          cgpa: academicsCgpaMap[rNo] ?? academicsCgpaMap[s.roll_no] ?? academicsCgpaMap[ustId] ?? academicsCgpaMap[s.id] ?? null,
+          attendance: attMap[rNo] ?? attMap[s.roll_no] ?? attMap[ustId] ?? attMap[s.id] ?? null,
+        });
+      });
+    }
+
     try {
+      const feedbackPromise =
+        _feedbackRpcSupported === false
+          ? Promise.resolve({ data: [] })
+          : Promise.race([
+              supabase.rpc("student_feedback").catch(() => {
+                _feedbackRpcSupported = false;
+                return { data: [] };
+              }),
+              new Promise<{ data: any[] }>((resolve) => setTimeout(() => resolve({ data: [] }), 400)),
+            ]).then((res: any) => {
+              if (res?.error) {
+                _feedbackRpcSupported = false;
+                return { data: [] };
+              }
+              if (res?.data && res.data.length > 0) _feedbackRpcSupported = true;
+              return res;
+            });
+
       const [{ data, error }, fb] = await Promise.all([
         supabase
           .from("students")
@@ -44,22 +94,17 @@ export const studentsQuery = queryOptions({
             "id, roll_no, name, department, year, cgpa, attendance, lms_activity, engagement, placement_readiness, skills_score, backlogs, user_id"
           )
           .order("name"),
-        Promise.race([
-          supabase.rpc("student_feedback").catch(() => ({ data: [] })),
-          new Promise<{ data: any[] }>((resolve) => setTimeout(() => resolve({ data: [] }), 1200)),
-        ]),
+        feedbackPromise,
       ]);
-
-      const attMap = getAuthoritativeDemoAttendanceMap();
-      const academicsCgpaMap = getAuthoritativeAcademicsCgpaMap();
 
       if (error || !data || data.length === 0) {
         return fallbackStudents.map((s) => {
           const rNo = s.roll_no?.toUpperCase();
+          const ustId = rNo ? `ust-${rNo.toLowerCase()}` : s.id;
           return score({
             ...s,
-            cgpa: academicsCgpaMap[rNo] ?? academicsCgpaMap[s.roll_no] ?? null,
-            attendance: attMap[rNo] ?? attMap[s.roll_no] ?? attMap[s.id] ?? null,
+            cgpa: academicsCgpaMap[rNo] ?? academicsCgpaMap[s.roll_no] ?? academicsCgpaMap[ustId] ?? academicsCgpaMap[s.id] ?? null,
+            attendance: attMap[rNo] ?? attMap[s.roll_no] ?? attMap[ustId] ?? attMap[s.id] ?? null,
           });
         });
       }
@@ -69,10 +114,11 @@ export const studentsQuery = queryOptions({
       if (genuine.length === 0) {
         return fallbackStudents.map((s) => {
           const rNo = s.roll_no?.toUpperCase();
+          const ustId = rNo ? `ust-${rNo.toLowerCase()}` : s.id;
           return score({
             ...s,
-            cgpa: academicsCgpaMap[rNo] ?? academicsCgpaMap[s.roll_no] ?? null,
-            attendance: attMap[rNo] ?? attMap[s.roll_no] ?? attMap[s.id] ?? null,
+            cgpa: academicsCgpaMap[rNo] ?? academicsCgpaMap[s.roll_no] ?? academicsCgpaMap[ustId] ?? academicsCgpaMap[s.id] ?? null,
+            attendance: attMap[rNo] ?? attMap[s.roll_no] ?? attMap[ustId] ?? attMap[s.id] ?? null,
           });
         });
       }
@@ -81,15 +127,20 @@ export const studentsQuery = queryOptions({
       const normalizedList = genuine.map((s) => {
         const normDept = normalizeDepartment(s.department) || "Computer Engineering";
         const rNo = s.roll_no ? s.roll_no.toUpperCase() : "";
+        const ustId = rNo ? `ust-${rNo.toLowerCase()}` : s.id;
         const authoritativeAtt =
           attMap[rNo] ??
           attMap[s.roll_no] ??
+          attMap[ustId] ??
           attMap[s.id] ??
           (s.attendance !== null && s.attendance !== undefined ? Number(s.attendance) : null);
         const authoritativeCgpa =
+          (s.cgpa !== null && s.cgpa !== undefined ? Number(s.cgpa) : null) ??
           academicsCgpaMap[rNo] ??
           academicsCgpaMap[s.roll_no] ??
-          (s.cgpa !== null && s.cgpa !== undefined ? Number(s.cgpa) : null);
+          academicsCgpaMap[ustId] ??
+          academicsCgpaMap[s.id] ??
+          null;
 
         return {
           ...s,
@@ -113,36 +164,6 @@ export const studentsQuery = queryOptions({
           attendance: attMap[s.roll_no] ?? attMap[s.id] ?? null,
         })
       );
-    }
-  },
-});
-
-export type Intervention = {
-  id: string;
-  student_id: string;
-  title: string;
-  category: string;
-  priority: string;
-  status: string;
-  assigned_to: string;
-  due_date: string | null;
-  notes: string;
-  created_at: string;
-};
-
-export const interventionsQuery = queryOptions({
-  queryKey: ["interventions"],
-  staleTime: 60_000,
-  queryFn: async () => {
-    try {
-      const { data, error } = await supabase
-        .from("interventions")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) return [];
-      return (data || []) as Intervention[];
-    } catch {
-      return [];
     }
   },
 });

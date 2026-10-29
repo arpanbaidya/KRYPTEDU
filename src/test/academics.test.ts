@@ -16,7 +16,6 @@ import {
 } from "../lib/academics";
 import { OFFICIAL_STUDENTS } from "../lib/official-dataset";
 import { score } from "../lib/scoring";
-import { generateSuggestions } from "../lib/interventions";
 
 describe("Academics Module — Core Logic & CGPA Conversions", () => {
   it("Semester configurations reflect verified Semesters I-V and unconfigured Semesters VI-VIII", () => {
@@ -355,7 +354,7 @@ describe("Academics Module — Core Logic & CGPA Conversions", () => {
     expect(cgpaAfter).toBe(cgpaBefore);
   });
 
-  it("Missing CGPA prevents false low-CGPA academic interventions", () => {
+  it("Missing CGPA prevents false low-CGPA academic risk factors", () => {
     // Student with missing CGPA (rawCgpa is null)
     const unscoredStudent = {
       id: "ust-test",
@@ -375,11 +374,8 @@ describe("Academics Module — Core Logic & CGPA Conversions", () => {
 
     const scored = score(unscoredStudent);
     expect(scored.rawCgpa).toBeNull();
-
-    const suggestions = generateSuggestions(scored);
-    const cgpaSuggestions = suggestions.filter((s) => s.indicator === "cgpa");
-    // Must NOT trigger critical low CGPA intervention for missing data!
-    expect(cgpaSuggestions).toHaveLength(0);
+    // Must NOT trigger low CGPA risk factor for missing data!
+    expect(scored.riskFactors.some((r) => r.toLowerCase().includes("cgpa"))).toBe(false);
   });
 
   it("getSubjectsForDepartment resolves correct curriculum subjects for all 3 departments", async () => {

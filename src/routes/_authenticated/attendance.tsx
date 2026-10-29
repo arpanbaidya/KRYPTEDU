@@ -50,12 +50,14 @@ import {
   CANONICAL_DEPARTMENTS,
   type AttendanceStatus,
   calculateAttendanceSummary,
+  syncAuthoritativeAttendanceMap,
   isWeekend,
   deterministicDemoStatus,
   DEMO_ATTENDANCE_CONFIG,
 } from "@/lib/attendance";
 import { type CanonicalDepartment, normalizeDepartment } from "@/lib/departments";
 import { OFFICIAL_STUDENTS } from "@/lib/official-dataset";
+import { score } from "@/lib/scoring";
 
 export const Route = createFileRoute("/_authenticated/attendance")({
   head: () => ({
@@ -266,52 +268,28 @@ function AttendancePage() {
 
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error" | "unsaved">("idle");
 
-  // Synchronize query records and local draft cache into marks state
+  // Only reset marks and pagination when user intentionally changes Department or Date
   useEffect(() => {
-    const studentList = activeAttendance?.students || fallbackCohort.students;
-    if (studentList && studentList.length > 0) {
-      const storageKey = `kryptedu_att_draft_${normalizedDept}_${selectedDate}`;
-      let cachedDrafts: Record<string, AttendanceStatus> = {};
-      try {
-        const raw = localStorage.getItem(storageKey);
-        if (raw) cachedDrafts = JSON.parse(raw);
-      } catch {
-        // ignore
-      }
+    setMarks({});
+    setPage(1);
+  }, [selectedDept, selectedDate]);
 
-      const initial: Record<string, AttendanceStatus> = {};
-      studentList.forEach((s: any) => {
-        const sid = s.student_id || s.id || `ust-${(s.roll_no || s.student_roll_no || "").toLowerCase()}`;
-        const rNo = s.student_roll_no || s.roll_no || "";
-        // Priority: local draft > server status
-        const cur = cachedDrafts[sid] || cachedDrafts[rNo] || s.status;
-        if (cur) initial[sid] = cur;
+  // Synchronize incoming query records into local marks without overwriting user changes or resetting page
+  useEffect(() => {
+    if (data?.students) {
+      setMarks((prev) => {
+        const next = { ...prev };
+        let hasNew = false;
+        data.students.forEach((s: any) => {
+          if (s.status && !next[s.student_id]) {
+            next[s.student_id] = s.status;
+            hasNew = true;
+          }
+        });
+        return hasNew ? next : prev;
       });
-
-      setMarks(initial);
-      setPage(1);
-
-      // Check if there are unsaved local drafts
-      if (Object.keys(cachedDrafts).length > 0 && activeAttendance.session?.status !== "published") {
-        setSaveStatus("unsaved");
-      } else {
-        setSaveStatus("idle");
-      }
     }
-  }, [activeAttendance?.students, fallbackCohort.students, normalizedDept, selectedDate]);
-
-  // Persist local marks changes to localStorage for safety
-  const persistDraftToStorage = useCallback(
-    (updatedMarks: Record<string, AttendanceStatus>) => {
-      try {
-        const storageKey = `kryptedu_att_draft_${normalizedDept}_${selectedDate}`;
-        localStorage.setItem(storageKey, JSON.stringify(updatedMarks));
-      } catch {
-        // ignore
-      }
-    },
-    [normalizedDept, selectedDate]
-  );
+  }, [data?.students]);
 
   // 2. Mutations
   const markSingleMutation = useMutation({
@@ -327,17 +305,41 @@ function AttendancePage() {
     onMutate: () => {
       setSaveStatus("saving");
     },
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2500);
-      if (activeAttendance?.session?.status === "published") {
-        queryClient.invalidateQueries({ queryKey: ["students"] });
-        queryClient.invalidateQueries({ queryKey: ["interventions"] });
-        queryClient.invalidateQueries({ queryKey: ["student-profile"] });
-        queryClient.invalidateQueries({ queryKey: ["student-attendance-history"] });
-        queryClient.invalidateQueries({ queryKey: ["student-attendance-dashboard"] });
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-        queryClient.invalidateQueries({ queryKey: ["reports"] });
+      if (res?.newAttendance !== undefined && res.roll_no) {
+        const rollUpper = res.roll_no.toUpperCase();
+        const map = {
+          [rollUpper]: res.newAttendance,
+          [res.roll_no]: res.newAttendance,
+          [res.student_id]: res.newAttendance,
+          [`ust-${res.roll_no.toLowerCase()}`]: res.newAttendance,
+        };
+        syncAuthoritativeAttendanceMap(map);
+
+        queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((student: any) => {
+            const cleanRoll = student.roll_no?.toUpperCase();
+            if (cleanRoll === rollUpper || student.id === res.student_id) {
+              return score({
+                ...student,
+                attendance: res.newAttendance,
+              });
+            }
+            return student;
+          });
+        });
+      }
+
+      if (data?.session?.status === "published" || res?.isAlreadyPublished) {
+        queryClient.invalidateQueries({ queryKey: ["students"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["student-profile"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["student-attendance-history"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["student-attendance-dashboard"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["dashboard"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["reports"], refetchType: "none" });
       }
     },
     onError: (err: any) => {
@@ -359,21 +361,41 @@ function AttendancePage() {
     onMutate: () => {
       setSaveStatus("saving");
     },
-    onSuccess: (res) => {
+    onSuccess: (res: any) => {
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2500);
       toast.success(`Marked ${res.count} students as ${res.status}.`);
       queryClient.invalidateQueries({
         queryKey: ["attendance-dashboard", normalizedDept, selectedDate],
       });
-      if (activeAttendance?.session?.status === "published") {
-        queryClient.invalidateQueries({ queryKey: ["students"] });
-        queryClient.invalidateQueries({ queryKey: ["interventions"] });
-        queryClient.invalidateQueries({ queryKey: ["student-profile"] });
-        queryClient.invalidateQueries({ queryKey: ["student-attendance-history"] });
-        queryClient.invalidateQueries({ queryKey: ["student-attendance-dashboard"] });
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-        queryClient.invalidateQueries({ queryKey: ["reports"] });
+      if (res?.updatedAttendance && Object.keys(res.updatedAttendance).length > 0) {
+        syncAuthoritativeAttendanceMap(res.updatedAttendance);
+        queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((student: any) => {
+            const cleanRoll = student.roll_no?.toUpperCase();
+            const updated =
+              res.updatedAttendance[cleanRoll] ??
+              res.updatedAttendance[student.roll_no] ??
+              res.updatedAttendance[student.id];
+            if (updated !== undefined) {
+              return score({
+                ...student,
+                attendance: updated,
+              });
+            }
+            return student;
+          });
+        });
+      }
+
+      if (data?.session?.status === "published" || res?.isAlreadyPublished) {
+        queryClient.invalidateQueries({ queryKey: ["students"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["student-profile"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["student-attendance-history"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["student-attendance-dashboard"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["dashboard"], refetchType: "none" });
+        queryClient.invalidateQueries({ queryKey: ["reports"], refetchType: "none" });
       }
     },
     onError: (err: any) => {
@@ -412,6 +434,7 @@ function AttendancePage() {
       if (rawCohortStudents.length === 0) throw new Error("No students loaded");
       const recordPayload = rawCohortStudents.map((s) => ({
         student_id: s.student_id,
+        roll_no: s.student_roll_no,
         status: (marks[s.student_id] || s.status) as AttendanceStatus,
       }));
       return submitAttendanceSession({
@@ -422,7 +445,7 @@ function AttendancePage() {
         },
       });
     },
-    onSuccess: (res) => {
+    onSuccess: (res: any) => {
       toast.success(res.message);
       setIsSubmitModalOpen(false);
       try {
@@ -430,14 +453,63 @@ function AttendancePage() {
       } catch {
         // ignore
       }
-      queryClient.invalidateQueries({
-        queryKey: ["attendance-dashboard", normalizedDept, selectedDate],
-      });
-      queryClient.invalidateQueries({ queryKey: ["students"] });
-      queryClient.invalidateQueries({ queryKey: ["interventions"] });
-      queryClient.invalidateQueries({ queryKey: ["student-profile"] });
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+
+      // 1. In-place instant cache update for the current Attendance view
+      // Ensures the published attendance stays identical, zero reload, zero screen refresh
+      queryClient.setQueryData(
+        ["attendance-dashboard", selectedDept, selectedDate],
+        (old: any) => {
+          if (!old) return old;
+          const updatedStudents = (old.students || []).map((s: any) => {
+            const m = marks[s.student_id] || s.status;
+            return {
+              ...s,
+              status: m,
+            };
+          });
+
+          return {
+            ...old,
+            session: {
+              ...(old.session || {}),
+              status: "published",
+              submitted_at: new Date().toISOString(),
+            },
+            summary: res.summary || old.summary,
+            students: updatedStudents,
+          };
+        }
+      );
+
+      // 2. Instantly update the React Query cache for the students table so the Students section in the sidebar reflects the new attendance immediately!
+      if (res.studentAttendance) {
+        syncAuthoritativeAttendanceMap(res.studentAttendance);
+        queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((student: any) => {
+            const cleanRoll = student.roll_no?.toUpperCase();
+            const sid = student.id;
+            const updated =
+              res.studentAttendance[cleanRoll] ??
+              res.studentAttendance[student.roll_no] ??
+              res.studentAttendance[sid];
+            if (updated !== undefined) {
+              return score({
+                ...student,
+                attendance: updated,
+              });
+            }
+            return student;
+          });
+        });
+      }
+
+      // 3. Mark background queries as stale without forcing active screen reloads
+      queryClient.invalidateQueries({ queryKey: ["students"], refetchType: "none" });
+      queryClient.invalidateQueries({ queryKey: ["student-profile"], refetchType: "none" });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"], refetchType: "none" });
+      queryClient.invalidateQueries({ queryKey: ["reports"], refetchType: "none" });
+      queryClient.invalidateQueries({ queryKey: ["student-dashboard"], refetchType: "none" });
     },
     onError: (err: any) => {
       toast.error(err.message || "Submission failed.");

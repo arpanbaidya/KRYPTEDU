@@ -728,7 +728,7 @@ export const SEGMENTS: Segment[] = [
 // ─── Support groups ──────────────────────────────────────────────────────────
 
 /**
- * Named support groups for actionable intervention planning.
+ * Named support groups for actionable academic planning.
  * A student may belong to multiple groups (except "Insufficient data",
  * which is exclusive when assigned).
  */

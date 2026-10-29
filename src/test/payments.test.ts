@@ -16,7 +16,13 @@ import {
   verifyRazorpayWebhookSignature,
   getRazorpayConfig,
 } from "../lib/razorpay.server";
-import { STANDARD_COURSE_FEE } from "../lib/payments.functions";
+import {
+  STANDARD_COURSE_FEE,
+  getAdminPaymentsDashboard,
+  getAdminPaymentsDashboardLogic,
+  updateStudentCourseFeeLogic,
+  getUserRole,
+} from "../lib/payments.functions";
 
 describe("Payment Module: Domain Logic & Razorpay Gateway Invariants", () => {
   // Test Case 1: Standardized Course Fee
@@ -420,5 +426,110 @@ describe("Role-Based Access Control (RBAC) Invariants for Payments", () => {
     expect(auditEntry.student_name).toBe("Aanosh Mukesh Lingapur");
     expect(auditEntry.student_roll_no).toBe("UST24R0102001");
     expect(auditEntry.reason).toBe(reason);
+  });
+
+  it("retrieves complete ledger for all 275 students with realistic statuses and financial summaries", async () => {
+    const createChain = () => {
+      const chain: any = {
+        order: () => chain,
+        limit: () => chain,
+        in: () => chain,
+        then: (onfulfilled: any) => Promise.resolve({ data: [] }).then(onfulfilled),
+        catch: (onrejected: any) => Promise.resolve({ data: [] }).catch(onrejected),
+      };
+      return chain;
+    };
+
+    const mockSupabase = {
+      from: () => ({
+        select: () => createChain(),
+      }),
+    };
+
+    const dashboard = await getAdminPaymentsDashboardLogic({
+      supabase: mockSupabase,
+      userId: "demo-admin-id",
+      claims: { email: "admin@kryptedu.com" },
+    });
+
+    // 1. Must return all 275 canonical students
+    expect(dashboard.feeItems.length).toBe(275);
+
+    // 2. All statuses must be represented
+    const paidCount = dashboard.feeItems.filter((i) => i.status === "Paid").length;
+    const partialCount = dashboard.feeItems.filter((i) => i.status === "Partially Paid").length;
+    const unpaidCount = dashboard.feeItems.filter((i) => i.status === "Unpaid").length;
+    const failedCount = dashboard.feeItems.filter((i) => i.status === "Failed").length;
+
+    expect(paidCount).toBeGreaterThan(0);
+    expect(partialCount).toBeGreaterThan(0);
+    expect(unpaidCount).toBeGreaterThan(0);
+    expect(failedCount).toBeGreaterThan(0);
+    expect(paidCount + partialCount + unpaidCount + failedCount).toBe(275);
+
+    // 3. Financial summary invariants
+    expect(dashboard.summary.totalCourseFees).toBe(275 * 175000);
+    expect(dashboard.summary.totalCollected).toBeGreaterThan(0);
+    expect(dashboard.summary.outstandingFees).toBe(
+      dashboard.summary.totalCourseFees - dashboard.summary.totalCollected
+    );
+
+    // 4. Transactions & Receipts must be present
+    expect(dashboard.transactions.length).toBeGreaterThan(0);
+    const sampleCapturedTx = dashboard.transactions.find((t) => t.status === "captured");
+    expect(sampleCapturedTx).toBeDefined();
+    expect(sampleCapturedTx?.receipt_number).toBeDefined();
+
+    // 5. Audit logs must be present
+    expect(dashboard.auditLogs.length).toBeGreaterThan(0);
+  });
+
+  it("updates student course fee and logs immutable audit trail entry", async () => {
+    const mockSupabase = {
+      from: () => ({
+        select: () => ({
+          ilike: () => ({ maybeSingle: () => Promise.resolve(null) }),
+          eq: () => ({ maybeSingle: () => Promise.resolve(null) }),
+        }),
+        insert: () => Promise.resolve({ data: null, error: null }),
+      }),
+    };
+
+    const targetStudentId = "ust-ust24r0102001";
+    const result = await updateStudentCourseFeeLogic(
+      {
+        student_id: targetStudentId,
+        total_fee: 140000,
+        reason: "Sports scholarship concession",
+      },
+      {
+        supabase: mockSupabase,
+        userId: "demo-admin-id",
+        claims: { email: "admin@kryptedu.com" },
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.newFee).toBe(140000);
+    expect(result.auditLog.reason).toBe("Sports scholarship concession");
+    expect(result.auditLog.new_fee).toBe(140000);
+  });
+
+  it("enforces strict RBAC rejection for non-admin callers", async () => {
+    const mockSupabase = {
+      from: () => ({
+        select: () => ({
+          eq: () => Promise.resolve({ data: [{ role: "faculty" }], error: null }),
+        }),
+      }),
+    };
+
+    await expect(
+      getAdminPaymentsDashboardLogic({
+        supabase: mockSupabase,
+        userId: "demo-faculty-id",
+        claims: { email: "faculty@kryptedu.com" },
+      })
+    ).rejects.toThrow("Forbidden (403)");
   });
 });

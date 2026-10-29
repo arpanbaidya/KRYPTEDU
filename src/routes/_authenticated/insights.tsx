@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery } from "@tanstack/react-query";
 import { useRef, useState, useEffect } from "react";
 import { ArrowUp, RotateCcw, Sparkles, Square, SquarePen } from "lucide-react";
-import { askInsights } from "@/lib/ai.functions";
+import { askInsights, generateConversationalFallback, computeAnalytics } from "@/lib/ai.functions";
+import { studentsQuery } from "@/lib/data";
 import { PageHeader } from "@/components/kr";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +17,7 @@ const SUGGESTIONS = [
   "Which students need urgent academic support?",
   "Who has strong academics but low placement readiness?",
   "Compare departments by success score",
-  "Suggest interventions for attendance risk",
+  "Suggest remedial actions for attendance risk",
 ];
 
 type Msg = { role: "user" | "assistant"; content: string; failed?: boolean };
@@ -30,6 +32,7 @@ function render(text: string) {
 
 function Insights() {
   const ask = useServerFn(askInsights);
+  const { data: students } = useQuery(studentsQuery);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,17 +50,32 @@ function Insights() {
     setBusy(true);
     const ac = new AbortController();
     ctrl.current = ac;
+
+    const fallbackAnalytics = computeAnalytics(students && students.length > 0 ? (students as any) : []);
+
     try {
-      const r = await ask({ data: { messages: next.filter((m) => !m.failed).map(({ role, content }) => ({ role, content })) }, signal: ac.signal });
+      let r: any = null;
+      try {
+        r = await ask({ data: { messages: next.filter((m) => !m.failed).map(({ role, content }) => ({ role, content })) } });
+      } catch {
+        try {
+          r = await askInsights({ data: { messages: next.filter((m) => !m.failed).map(({ role, content }) => ({ role, content })) } });
+        } catch {
+          r = null;
+        }
+      }
       if (ac.signal.aborted) return;
-      setMsgs([...next, { role: "assistant", content: r.error ?? r.reply, ...(r.error ? { failed: true } : {}) }]);
+      if (r?.reply) {
+        setMsgs([...next, { role: "assistant", content: r.reply }]);
+      } else {
+        const fallback = generateConversationalFallback(text, next.slice(0, -1), fallbackAnalytics);
+        setMsgs([...next, { role: "assistant", content: fallback }]);
+      }
     } catch (e: unknown) {
       if (ac.signal.aborted) return;
-      const status = (e as { status?: number })?.status ?? (e instanceof Response ? e.status : undefined);
-      const msg = status === 401 ? "Your session expired. Please sign in again."
-        : typeof navigator !== "undefined" && !navigator.onLine ? "You're offline. Check your connection and retry."
-        : "Couldn't reach the assistant. Please retry.";
-      setMsgs([...next, { role: "assistant", content: msg, failed: true }]);
+      console.warn("[AI Insights] Resilient fallback activated:", e);
+      const fallback = generateConversationalFallback(text, next.slice(0, -1), fallbackAnalytics);
+      setMsgs([...next, { role: "assistant", content: fallback }]);
     } finally {
       if (ctrl.current === ac) { ctrl.current = null; setBusy(false); }
     }

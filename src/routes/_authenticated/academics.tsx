@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useMemo, useDeferredValue } from "react";
+import { useState, useMemo, useDeferredValue, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -58,6 +58,7 @@ import {
   calculateStudentCGPA,
   getSubjectsForDepartment,
   generateDemoResultsForOfficialStudents,
+  syncAuthoritativeAcademicResults,
   type AcademicSemester,
   type Subject,
   type SubjectResource,
@@ -230,6 +231,16 @@ function AcademicsPage() {
   }, [studentGroups, currentPage, RESULTS_PAGE_SIZE]);
 
   // Mutations
+  // Keep client authoritative store synchronized whenever academics data is fetched
+  useEffect(() => {
+    if (data?.results && data.results.length > 0) {
+      const published = data.results.filter((r: StudentSubjectResult) => r.publicationStatus === "published");
+      if (published.length > 0) {
+        syncAuthoritativeAcademicResults(published);
+      }
+    }
+  }, [data?.results]);
+
   const saveDraftMutation = useMutation({
     mutationFn: (payload: any) => saveMarksDraft({ data: payload }),
     onSuccess: (res) => {
@@ -243,16 +254,71 @@ function AcademicsPage() {
 
   const publishMutation = useMutation({
     mutationFn: (payload: any) => publishSubjectResults({ data: payload }),
-    onSuccess: (res) => {
+    onSuccess: (res: any) => {
+      if (res.errors && res.errors.length > 0 && res.publishedCount === 0) {
+        toast.error(res.errors.join("; "));
+        return;
+      }
+      if (res.publishedRecords && res.publishedRecords.length > 0) {
+        syncAuthoritativeAcademicResults(res.publishedRecords, res.updatedCgpaMap);
+      }
       toast.success(res.message);
+      if (markingSubject?.id) {
+        setGlobalSubjectSelector(markingSubject.id);
+      }
       setIsMarkingModalOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["academics-data"] });
-      queryClient.invalidateQueries({ queryKey: ["student-profile"] });
-      queryClient.invalidateQueries({ queryKey: ["students"] });
-      queryClient.invalidateQueries({ queryKey: ["interventions"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
-      queryClient.invalidateQueries({ queryKey: ["student-dashboard"] });
+
+      // In-place instant cache update for the current Academics view (zero flicker, zero latency)
+      queryClient.setQueriesData({ queryKey: ["academics-data"] }, (old: any) => {
+        const baseResults = Array.isArray(old?.results) && old.results.length > 0
+          ? [...old.results]
+          : generateDemoResultsForOfficialStudents(selectedSemNumber, selectedDept);
+
+        for (const pub of (res.publishedRecords || [])) {
+          const idx = baseResults.findIndex(
+            (r: any) => r.studentRollNo === pub.studentRollNo && r.subjectId === pub.subjectId
+          );
+          if (idx >= 0) {
+            baseResults[idx] = pub;
+          } else {
+            baseResults.push(pub);
+          }
+        }
+
+        return {
+          ...(old || {}),
+          role: old?.role || role,
+          department: old?.department || selectedDept,
+          semester: old?.semester || { semesterNumber: selectedSemNumber },
+          isConfigured: true,
+          subjects: old?.subjects || subjects,
+          results: baseResults,
+        };
+      });
+
+      // In-place instant update for the Student table query so Student section displays latest CGPA immediately
+      if (res.updatedCgpaMap) {
+        queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((student: any) => {
+            const updated =
+              res.updatedCgpaMap[student.roll_no] ??
+              res.updatedCgpaMap[student.roll_no?.toUpperCase()];
+            if (updated !== undefined) {
+              return { ...student, cgpa: updated };
+            }
+            return student;
+          });
+        });
+      }
+
+      // Background revalidation: refresh active queries immediately, mark inactive as stale
+      queryClient.invalidateQueries({ queryKey: ["academics-data"], refetchType: "active" });
+      queryClient.invalidateQueries({ queryKey: ["students"], refetchType: "active" });
+      queryClient.invalidateQueries({ queryKey: ["student-profile"], refetchType: "none" });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"], refetchType: "none" });
+      queryClient.invalidateQueries({ queryKey: ["reports"], refetchType: "none" });
+      queryClient.invalidateQueries({ queryKey: ["student-dashboard"], refetchType: "none" });
     },
     onError: (err: any) => {
       toast.error(err.message || "Failed to publish results.");
@@ -1046,6 +1112,7 @@ function AcademicsPage() {
                 <Button
                   variant="outline"
                   size="sm"
+                  disabled={publishMutation.isPending || saveDraftMutation.isPending}
                   onClick={() => setIsMarkingModalOpen(false)}
                   className="rounded-xl text-xs"
                 >
@@ -1054,8 +1121,9 @@ function AcademicsPage() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  disabled={saveDraftMutation.isPending}
+                  disabled={saveDraftMutation.isPending || publishMutation.isPending}
                   onClick={() => {
+                    if (saveDraftMutation.isPending || publishMutation.isPending) return;
                     const payloadRecords = Object.entries(draftMarksState).map(([rollNo, marks]) => ({
                       studentRollNo: rollNo,
                       writtenMarks: marks.written !== "" ? Number(marks.written) : null,
@@ -1073,8 +1141,9 @@ function AcademicsPage() {
                 </Button>
                 <Button
                   size="sm"
-                  disabled={publishMutation.isPending}
+                  disabled={publishMutation.isPending || saveDraftMutation.isPending}
                   onClick={() => {
+                    if (publishMutation.isPending || saveDraftMutation.isPending) return;
                     const payloadRecords = Object.entries(draftMarksState)
                       .filter(([_, m]) => m.written !== "" && m.internal !== "")
                       .map(([rollNo, marks]) => ({
@@ -1097,7 +1166,7 @@ function AcademicsPage() {
                   className="gap-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
                   <Send className="size-3" />
-                  {publishMutation.isPending ? "Publishing..." : "Confirm & Publish"}
+                  {publishMutation.isPending ? "Publishing & Calculating CGPA..." : "Confirm & Publish"}
                 </Button>
               </DialogFooter>
             </>

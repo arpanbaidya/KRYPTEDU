@@ -26,7 +26,9 @@ export type Evaluation = {
   feedback: string;
   strengths: string[];
   improvements: string[];
+  missing_concepts?: string[];
   better_answer: string;
+  followup_rationale?: string;
 };
 
 export type Answer = {
@@ -36,8 +38,16 @@ export type Answer = {
 
 export type Summary = {
   overview: string;
+  overall_score?: number;
+  technical_score?: number;
+  communication_score?: number;
+  problem_solving_score?: number;
+  strongest_areas?: string[];
+  weakest_areas?: string[];
   recurring_weaknesses: string[];
   topics_to_practise: string[];
+  suggested_practice_questions?: string[];
+  preparation_plan?: string[];
   next_steps: string[];
 };
 
@@ -87,14 +97,15 @@ export function validateQuestions(raw: unknown, count: number, type: string): Qu
 
   const qs: Question[] = [];
   for (const q of list as any[]) {
-    const text = str(q?.text, 600);
+    const text = str(q?.text || q?.prompt || q?.question, 600);
     const normalized = text.toLowerCase().replace(/[^a-z0-9]/g, "");
     if (text.length <= 15 || seenTexts.has(normalized)) continue;
     seenTexts.add(normalized);
 
+    const rawKind = q?.kind || q?.type;
     const kind: Question["kind"] =
       type === "Mixed"
-        ? q?.kind === "HR/Behavioral"
+        ? (rawKind === "HR/Behavioral" || String(rawKind).toLowerCase().includes("hr") || String(rawKind).toLowerCase().includes("behavioral"))
           ? "HR/Behavioral"
           : "Technical"
         : (type as Question["kind"]);
@@ -149,8 +160,16 @@ export function validateSummary(raw: unknown): Summary | null {
   if (!overview) return null;
   return {
     overview,
+    overall_score: pct(r?.overall_score) ?? undefined,
+    technical_score: pct(r?.technical_score) ?? undefined,
+    communication_score: pct(r?.communication_score) ?? undefined,
+    problem_solving_score: pct(r?.problem_solving_score) ?? undefined,
+    strongest_areas: strs(r?.strongest_areas),
+    weakest_areas: strs(r?.weakest_areas),
     recurring_weaknesses: strs(r?.recurring_weaknesses),
     topics_to_practise: strs(r?.topics_to_practise),
+    suggested_practice_questions: strs(r?.suggested_practice_questions),
+    preparation_plan: strs(r?.preparation_plan),
     next_steps: strs(r?.next_steps),
   };
 }

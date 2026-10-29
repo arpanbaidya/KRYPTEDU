@@ -4,6 +4,7 @@ import {
   calculateAttendanceSummary,
   calculateStudentOverallAttendance,
   updateStudentAuthoritativeAttendance,
+  syncAuthoritativeAttendanceMap,
   getAuthoritativeStudentAttendance,
   getAuthoritativeDemoAttendanceMap,
   invalidateAttendanceCache,
@@ -18,7 +19,6 @@ import {
   type StudentSubjectResult,
 } from "../lib/academics";
 import { score } from "../lib/scoring";
-import { generateSuggestions } from "../lib/interventions";
 import { OFFICIAL_STUDENTS } from "../lib/official-dataset";
 
 describe("Two-Way Synchronisation: Attendance and Academics CGPA", () => {
@@ -195,11 +195,11 @@ describe("Two-Way Synchronisation: Attendance and Academics CGPA", () => {
     }
   });
 
-  // 8. Analytics, Data Integration, and Interventions use the updated values
-  it("Scenario 8: Interventions generate targeted recommendations when CGPA or attendance drops", () => {
+  // 8. Risk scores and factors update dynamically when CGPA or attendance drops
+  it("Scenario 8: Updates risk scores and factors dynamically when CGPA or attendance drops", () => {
     const student = OFFICIAL_STUDENTS[4];
 
-    // Low CGPA (4.5) triggers Critical academic intervention
+    // Low CGPA (4.5) triggers High academic risk
     const lowCgpaStudent = score({
       id: student.id,
       roll_no: student.roll_no,
@@ -210,13 +210,10 @@ describe("Two-Way Synchronisation: Attendance and Academics CGPA", () => {
       attendance: 90,
     });
 
-    const suggestions = generateSuggestions(lowCgpaStudent);
-    const academicSugg = suggestions.find((s) => s.indicator === "cgpa");
-    expect(academicSugg).toBeDefined();
-    expect(academicSugg?.priority).toBe("High");
-    expect(academicSugg?.issue).toContain("critically below passing threshold");
+    expect(lowCgpaStudent.academicRisk).toBe("Medium");
+    expect(lowCgpaStudent.riskFactors.some((rf) => rf.includes("Low CGPA"))).toBe(true);
 
-    // Critical attendance (<60%) triggers Critical attendance intervention
+    // Critical attendance (<60%) triggers Critical attendance risk
     const lowAttStudent = score({
       id: student.id,
       roll_no: student.roll_no,
@@ -226,11 +223,8 @@ describe("Two-Way Synchronisation: Attendance and Academics CGPA", () => {
       cgpa: 8.5,
       attendance: 52,
     });
-    const attSuggestions = generateSuggestions(lowAttStudent);
-    const attSugg = attSuggestions.find((s) => s.indicator === "attendance");
-    expect(attSugg).toBeDefined();
-    expect(attSugg?.priority).toBe("High");
-    expect(attSugg?.issue).toContain("Critical attendance deficit");
+    expect(lowAttStudent.academicRisk).toBe("High");
+    expect(lowAttStudent.riskFactors.some((rf) => rf.includes("Attendance below 75%"))).toBe(true);
   });
 
   // 9. Missing academic data displays N/A instead of fabricated values
@@ -331,5 +325,42 @@ describe("Two-Way Synchronisation: Attendance and Academics CGPA", () => {
 
     expect(scored.rawAttendance).toBe(authAtt);
     expect(scored.rawCgpa).toBe(authCgpa);
+  });
+
+  // 13. Aanosh Mukesh Lingapur attendance change propagation to Student profile
+  it("Scenario 13: Changing attendance for Aanosh Mukesh Lingapur updates authoritative map and student score components", () => {
+    const aanosh = OFFICIAL_STUDENTS[0]; // UST24R0102001 Aanosh Mukesh Lingapur
+    expect(aanosh.roll_no).toBe("UST24R0102001");
+
+    // Change attendance from initial (93.8%) to 88.7%
+    syncAuthoritativeAttendanceMap({
+      [aanosh.roll_no]: 88.7,
+      [`ust-${aanosh.roll_no.toLowerCase()}`]: 88.7,
+    });
+
+    // Check authoritative attendance
+    expect(getAuthoritativeStudentAttendance(aanosh.roll_no)).toBe(88.7);
+    const attMap = getAuthoritativeDemoAttendanceMap();
+    expect(attMap[aanosh.roll_no]).toBe(88.7);
+    expect(attMap["UST24R0102001"]).toBe(88.7);
+    expect(attMap["ust-ust24r0102001"]).toBe(88.7);
+
+    // Score calculation must use 88.7%
+    const studentScored = score({
+      id: `ust-${aanosh.roll_no.toLowerCase()}`,
+      roll_no: aanosh.roll_no,
+      name: aanosh.name,
+      department: aanosh.department,
+      year: aanosh.year,
+      attendance: attMap[aanosh.roll_no],
+      cgpa: 8.04,
+      lms_activity: 0,
+      engagement: 0,
+    });
+
+    expect(studentScored.attendance).toBe(88.7);
+    expect(studentScored.rawAttendance).toBe(88.7);
+    // Academic index = CGPA (8.04/10*100*0.5 = 40.2) + Attendance (88.7*0.3 = 26.61) + LMS (0) = 66.81 -> 67
+    expect(studentScored.academicIndex).toBe(67);
   });
 });

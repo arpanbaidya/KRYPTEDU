@@ -15,7 +15,6 @@ import {
 import { CANONICAL_DEPARTMENTS } from "../lib/departments";
 import { OFFICIAL_STUDENTS } from "../lib/official-dataset";
 import { score } from "../lib/scoring";
-import { generateSuggestions } from "../lib/interventions";
 
 describe("Attendance Calculation Invariants", () => {
   it("calculates session attendance percentage using Present / (Present + Absent) * 100", () => {
@@ -214,12 +213,6 @@ describe("Cross-Module Attendance Integration & Downstream Scoring", () => {
 
     expect(student.academicRisk).toBe("High");
     expect(student.riskFactors.some((rf) => rf.includes("Attendance below 75%"))).toBe(true);
-
-    const suggestions = generateSuggestions(student);
-    const attSuggestion = suggestions.find((s) => s.indicator === "attendance");
-    expect(attSuggestion).toBeDefined();
-    expect(attSuggestion?.priority).toBe("High");
-    expect(attSuggestion?.issue).toBe("Critical attendance deficit");
   });
 
   it("triggers Academic Risk Medium when attendance is between 60% and 75%", () => {
@@ -241,12 +234,6 @@ describe("Cross-Module Attendance Integration & Downstream Scoring", () => {
 
     expect(student.academicRisk).toBe("Medium");
     expect(student.riskFactors.some((rf) => rf.includes("Attendance below 75%"))).toBe(true);
-
-    const suggestions = generateSuggestions(student);
-    const attSuggestion = suggestions.find((s) => s.indicator === "attendance");
-    expect(attSuggestion).toBeDefined();
-    expect(attSuggestion?.priority).toBe("Medium");
-    expect(attSuggestion?.issue).toBe("Attendance below institutional threshold");
   });
 
   it("attendance correctly contributes 30% to Academic Index according to official methodology", () => {
@@ -550,6 +537,63 @@ describe("Cross-Module Attendance Integration & Downstream Scoring", () => {
       expect(profile.absentCount).toBe(0);
       expect(profile.overallAttendancePercentage).toBeNull(); // N/A
     });
+  });
+
+  it("benchmarks publication speed for full department cohort of 157 students to under 100ms", async () => {
+    const { submitAttendanceSessionLogic } = await import("../lib/attendance.functions");
+
+    const ceStudents = OFFICIAL_STUDENTS.filter(
+      (s) => s.department === "Computer Engineering"
+    );
+    expect(ceStudents.length).toBe(157);
+
+    const records = ceStudents.map((s, idx) => ({
+      student_id: `ust-${s.roll_no.toLowerCase()}`,
+      roll_no: s.roll_no,
+      status: (idx < 133 ? "present" : idx < 150 ? "absent" : "not_considered") as AttendanceStatus,
+    }));
+
+    const mockSupabase = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: null, error: null }),
+            }),
+          }),
+        }),
+        insert: () => ({
+          select: () => ({
+            single: () => Promise.resolve({ data: { id: "benchmark-session-id" }, error: null }),
+          }),
+        }),
+        upsert: () => Promise.resolve({ error: null }),
+      }),
+    };
+
+    const startTime = performance.now();
+    const result = await submitAttendanceSessionLogic(
+      {
+        department: "Computer Engineering",
+        date: "2026-10-30",
+        records,
+        publishImmediately: true,
+      },
+      {
+        supabase: mockSupabase,
+        userId: "demo-faculty-id",
+        claims: { email: "faculty@kryptedu.com" },
+      }
+    );
+    const duration = performance.now() - startTime;
+
+    expect(result.success).toBe(true);
+    expect(result.summary.totalStudents).toBe(157);
+    expect(result.summary.presentCount).toBe(133);
+    expect(result.summary.absentCount).toBe(17);
+    expect(result.summary.notConsideredCount).toBe(7);
+    expect(result.summary.attendancePercentage).toBe(88.7);
+    expect(duration).toBeLessThan(100); // Must be under 100ms
   });
 
   describe("Dataset Restoration, Summary Synchronization, and Search/Filter Invariants", () => {

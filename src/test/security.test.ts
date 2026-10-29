@@ -28,7 +28,6 @@ describe("Security, Privacy, and Authorization Policies", () => {
       expect(isPathAllowedForStudent("/analytics")).toBe(false);
       expect(isPathAllowedForStudent("/students")).toBe(false);
       expect(isPathAllowedForStudent("/students/some-uuid")).toBe(false);
-      expect(isPathAllowedForStudent("/interventions")).toBe(false);
       expect(isPathAllowedForStudent("/integration")).toBe(false);
       expect(isPathAllowedForStudent("/admin")).toBe(false);
       expect(isPathAllowedForStudent("/insights")).toBe(false);

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { isGeminiConfigured, getGeminiModel, callGemini } from "../lib/gemini.server";
+import {
+  isGeminiConfigured,
+  getGeminiModel,
+  callGemini,
+  isAIConfigured,
+  getAIModel,
+  callAI,
+} from "../lib/ai.service";
 import { score, type StudentRow } from "../lib/scoring";
 import {
   computeAnalytics,
@@ -7,37 +14,78 @@ import {
 } from "../lib/ai.functions";
 
 describe("AI Service Layer & Conversational Copilot Invariants", () => {
-  it("reads model from GEMINI_MODEL or defaults to production-stable gemini-1.5-flash", () => {
-    const original = process.env["GEMINI_MODEL"];
+  it("reads model from AI_PROVIDER_MODEL, GEMINI_MODEL, or defaults to production-stable gemini-3.1-flash-lite", () => {
+    const orig1 = process.env["AI_PROVIDER_MODEL"];
+    const orig2 = process.env["GEMINI_MODEL"];
+    delete process.env["AI_PROVIDER_MODEL"];
     delete process.env["GEMINI_MODEL"];
-    expect(getGeminiModel()).toBe("gemini-1.5-flash");
 
-    process.env["GEMINI_MODEL"] = "gemini-2.0-flash";
-    expect(getGeminiModel()).toBe("gemini-2.0-flash");
+    expect(getAIModel()).toBe("gemini-3.1-flash-lite");
+    expect(getGeminiModel()).toBe("gemini-3.1-flash-lite");
 
-    if (original) process.env["GEMINI_MODEL"] = original;
+    process.env["AI_PROVIDER_MODEL"] = "gemini-3.8-flash";
+    expect(getAIModel()).toBe("gemini-3.8-flash");
+
+    delete process.env["AI_PROVIDER_MODEL"];
+    process.env["GEMINI_MODEL"] = "gemini-3.8-pro";
+    expect(getAIModel()).toBe("gemini-3.8-pro");
+
+    if (orig1) process.env["AI_PROVIDER_MODEL"] = orig1;
+    else delete process.env["AI_PROVIDER_MODEL"];
+    if (orig2) process.env["GEMINI_MODEL"] = orig2;
     else delete process.env["GEMINI_MODEL"];
   });
 
-  it("handles missing API key gracefully without throwing unhandled exceptions", async () => {
-    const origKey1 = process.env["GEMINI_API_KEY"];
-    const origKey2 = process.env["GOOGLE_API_KEY"];
+  it("loads server-side key from AI_PROVIDER_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY", () => {
+    const origKey1 = process.env["AI_PROVIDER_API_KEY"];
+    const origKey2 = process.env["GEMINI_API_KEY"];
+    const origKey3 = process.env["GOOGLE_API_KEY"];
+    delete process.env["AI_PROVIDER_API_KEY"];
     delete process.env["GEMINI_API_KEY"];
     delete process.env["GOOGLE_API_KEY"];
 
+    expect(isAIConfigured()).toBe(false);
     expect(isGeminiConfigured()).toBe(false);
 
-    const result = await callGemini("test prompt");
+    process.env["AI_PROVIDER_API_KEY"] = "test-ai-key-1234567890123";
+    expect(isAIConfigured()).toBe(true);
+
+    delete process.env["AI_PROVIDER_API_KEY"];
+    process.env["GEMINI_API_KEY"] = "test-gemini-key-1234567890123";
+    expect(isAIConfigured()).toBe(true);
+
+    delete process.env["GEMINI_API_KEY"];
+    expect(isAIConfigured()).toBe(false);
+
+    if (origKey1) process.env["AI_PROVIDER_API_KEY"] = origKey1;
+    if (origKey2) process.env["GEMINI_API_KEY"] = origKey2;
+    if (origKey3) process.env["GOOGLE_API_KEY"] = origKey3;
+  });
+
+  it("handles missing API key gracefully without throwing unhandled exceptions", async () => {
+    const origKey1 = process.env["AI_PROVIDER_API_KEY"];
+    const origKey2 = process.env["GEMINI_API_KEY"];
+    const origKey3 = process.env["GOOGLE_API_KEY"];
+    delete process.env["AI_PROVIDER_API_KEY"];
+    delete process.env["GEMINI_API_KEY"];
+    delete process.env["GOOGLE_API_KEY"];
+
+    expect(isAIConfigured()).toBe(false);
+
+    const result = await callAI("test prompt");
     expect(result.data).toBeNull();
     expect(result.error).toContain("not configured");
 
-    if (origKey1) process.env["GEMINI_API_KEY"] = origKey1;
-    if (origKey2) process.env["GOOGLE_API_KEY"] = origKey2;
+    if (origKey1) process.env["AI_PROVIDER_API_KEY"] = origKey1;
+    if (origKey2) process.env["GEMINI_API_KEY"] = origKey2;
+    if (origKey3) process.env["GOOGLE_API_KEY"] = origKey3;
   });
 
-  it("supports multi-turn conversation history in callGemini options", async () => {
-    const origKey1 = process.env["GEMINI_API_KEY"];
-    const origKey2 = process.env["GOOGLE_API_KEY"];
+  it("supports multi-turn conversation history in callAI options", async () => {
+    const origKey1 = process.env["AI_PROVIDER_API_KEY"];
+    const origKey2 = process.env["GEMINI_API_KEY"];
+    const origKey3 = process.env["GOOGLE_API_KEY"];
+    delete process.env["AI_PROVIDER_API_KEY"];
     delete process.env["GEMINI_API_KEY"];
     delete process.env["GOOGLE_API_KEY"];
 
@@ -46,12 +94,13 @@ describe("AI Service Layer & Conversational Copilot Invariants", () => {
       { role: "assistant" as const, content: "Information Technology averages 42/100." },
     ];
 
-    const result = await callGemini("Why is it low?", { history });
+    const result = await callAI("Why is it low?", { history });
     // Verifies the call signature and options accept multi-turn history without runtime type errors
     expect(result.error).toBeDefined();
 
-    if (origKey1) process.env["GEMINI_API_KEY"] = origKey1;
-    if (origKey2) process.env["GOOGLE_API_KEY"] = origKey2;
+    if (origKey1) process.env["AI_PROVIDER_API_KEY"] = origKey1;
+    if (origKey2) process.env["GEMINI_API_KEY"] = origKey2;
+    if (origKey3) process.env["GOOGLE_API_KEY"] = origKey3;
   });
 
   describe("Cohort Analytics Aggregation Consistency", () => {

@@ -1,7 +1,7 @@
 import { Link, useRouteContext, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import {
-  Home, Users, BarChart3, ClipboardCheck, CalendarCheck, GraduationCap, MoreHorizontal, Database, Sparkles, FileText, Bell, UserCircle, ArrowUpRight, Mic, CreditCard,
+  Home, Users, BarChart3, CalendarCheck, GraduationCap, MoreHorizontal, Database, Sparkles, FileText, Bell, UserCircle, ArrowUpRight, Mic, CreditCard,
 } from "lucide-react";
 import { Wordmark } from "./kr";
 import { ProfileIdButton } from "./IdCard";
@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 const staffPrimary = [
   { to: "/dashboard", label: "Home", icon: Home },
   { to: "/students", label: "Students", icon: Users },
-  { to: "/interventions", label: "Interventions", icon: ClipboardCheck },
   { to: "/attendance", label: "Attendance", icon: CalendarCheck },
   { to: "/academics", label: "Academics", icon: GraduationCap },
   { to: "/more", label: "More", icon: MoreHorizontal },

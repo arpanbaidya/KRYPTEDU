@@ -1,16 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { ArrowUpRight, ArrowRight, Users, GraduationCap, ClipboardCheck, Database, Bell, UserCircle, CalendarCheck } from "lucide-react";
+import { ArrowUpRight, ArrowRight, Users, GraduationCap, Database, Bell, UserCircle, CalendarCheck, Sparkles } from "lucide-react";
 import { Bar as RBar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell } from "recharts";
-import { studentsQuery, interventionsQuery, avg } from "@/lib/data";
+import { studentsQuery, avg } from "@/lib/data";
 import { Card, RiskBadge, SectionTitle, Stat, StudentLink } from "@/components/kr";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Home — KRYPTEDU" }, { name: "description", content: "Institutional student success overview." }, { property: "og:title", content: "Home — KRYPTEDU" }, { property: "og:description", content: "Institutional student success overview." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }] }),
-  loader: ({ context }) =>
-    Promise.all([context.queryClient.ensureQueryData(studentsQuery), context.queryClient.ensureQueryData(interventionsQuery)]),
+  loader: ({ context }) => context.queryClient.ensureQueryData(studentsQuery),
   component: Dashboard,
   errorComponent: ({ error }) => <div role="alert" className="text-sm">{String((error as Error)?.message ?? error)}</div>,
 });
@@ -20,12 +19,11 @@ const quickAccess = [
   { to: "/students", label: "Students", icon: Users },
   { to: "/attendance", label: "Attendance", icon: CalendarCheck },
   { to: "/academics", label: "Academics", icon: GraduationCap },
-  { to: "/interventions", label: "Interventions", icon: ClipboardCheck },
+  { to: "/insights", label: "AI Insights", icon: Sparkles },
 ] as const;
 
 function Dashboard() {
   const { data: students } = useSuspenseQuery(studentsQuery);
-  const { data: interventions } = useSuspenseQuery(interventionsQuery);
 
   const { acHigh, plHigh, bins, depts, priority, open, bestDept, worstDept, cohortAvgScore } = useMemo(() => {
     const ac = students.filter((s) => s.academicRisk === "High").length;
@@ -55,9 +53,9 @@ function Dashboard() {
       .sort((a, b) => a.successScore - b.successScore)
       .slice(0, 5);
 
-    const o = interventions.filter((i) => i.status !== "Completed").length;
     const sortedDepts = [...d].sort((a, b) => b.score - a.score);
     const avgScore = avg(students.map((s) => s.successScore));
+    const lowAtt = students.filter((s) => typeof s.attendance === "number" && s.attendance < 75).length;
 
     return {
       acHigh: ac,
@@ -65,12 +63,12 @@ function Dashboard() {
       bins: b,
       depts: d,
       priority: p,
-      open: o,
       bestDept: sortedDepts[0],
       worstDept: sortedDepts[sortedDepts.length - 1],
       cohortAvgScore: avgScore,
+      lowAttCount: lowAtt,
     };
-  }, [students, interventions]);
+  }, [students]);
 
   return (
     <>
@@ -165,7 +163,7 @@ function Dashboard() {
             <li><div className="font-medium">{bestDept?.dept} leads</div><div className="text-xs text-muted-foreground">Highest avg. success score at {bestDept?.score}.</div></li>
             <li><div className="font-medium">{worstDept?.dept} needs attention</div><div className="text-xs text-muted-foreground">Lowest avg. success score at {worstDept?.score}.</div></li>
             <li><div className="font-medium">{students.filter((s) => s.segment === "High Academic / Low Placement").length} strong students not placement-ready</div><div className="text-xs text-muted-foreground">Good academics, weak placement readiness.</div></li>
-            <li><div className="font-medium">{open} open interventions</div><div className="text-xs text-muted-foreground"><Link to="/interventions" className="underline underline-offset-2">Review follow-ups</Link></div></li>
+            <li><div className="font-medium">{students.filter((s) => typeof s.attendance === "number" && s.attendance < 75).length} students below 75% attendance</div><div className="text-xs text-muted-foreground"><Link to="/attendance" className="underline underline-offset-2">View attendance logs</Link></div></li>
           </ul>
         </Card>
       </div>

@@ -2,14 +2,14 @@ import { toast } from "sonner";
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
-import { studentsQuery, interventionsQuery } from "@/lib/data";
+import { studentsQuery } from "@/lib/data";
 import type { Scored } from "@/lib/scoring";
 import { Card, PageHeader } from "@/components/kr";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/reports")({
   head: () => ({ meta: [{ title: "Reports — KRYPTEDU" }, { name: "description", content: "Export student success reports." }, { property: "og:title", content: "Reports — KRYPTEDU" }, { property: "og:description", content: "Export student success reports." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }] }),
-  loader: ({ context }) => Promise.all([context.queryClient.ensureQueryData(studentsQuery), context.queryClient.ensureQueryData(interventionsQuery)]),
+  loader: ({ context }) => context.queryClient.ensureQueryData(studentsQuery),
   component: Reports,
 });
 
@@ -39,7 +39,6 @@ const studentRows = (l: Scored[]) => [
 
 function Reports() {
   const { data: students } = useSuspenseQuery(studentsQuery);
-  const { data: ints } = useSuspenseQuery(interventionsQuery);
   const reports = [
     { t: "Full cohort success report", d: `${students.length} students with scores, risks and segments`, go: () => download("kryptedu-cohort.csv", studentRows(students)) },
     { t: "Published attendance report", d: `Official attendance records across 65 weekdays for ${students.length} students (Aug–Oct 2026)`, go: () => download("kryptedu-attendance-cohort.csv", [
@@ -54,7 +53,10 @@ function Reports() {
       ]),
     ]) },
     { t: "At-risk students", d: "High academic or placement risk", go: () => download("kryptedu-at-risk.csv", studentRows(students.filter((s) => s.academicRisk === "High" || s.placementRisk === "High"))) },
-    { t: "Interventions log", d: `${ints.length} interventions with status`, go: () => download("kryptedu-interventions.csv", [["Title", "Category", "Priority", "Status", "Assigned", "Due"], ...ints.map((i) => [i.title, i.category, i.priority, i.status, i.assigned_to, i.due_date ?? ""])]) },
+    { t: "Academics & CGPA report", d: `Official calculated semester CGPA and backlogs for ${students.length} students`, go: () => download("kryptedu-academics.csv", [
+      ["Roll No", "Name", "Department", "CGPA", "Backlogs", "Academic Risk"],
+      ...students.map((s) => [s.roll_no, s.name, s.department, s.rawCgpa !== null ? s.cgpa : "N/A", s.backlogs ?? 0, s.academicRisk]),
+    ]) },
   ];
   return (
     <>

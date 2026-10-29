@@ -3,6 +3,8 @@
  * Handles balance math, payment option calculation, status derivation,
  * validation, and currency formatting.
  */
+import { OFFICIAL_STUDENTS } from "./official-dataset";
+import { normalizeDepartment } from "./departments";
 
 export type PaymentStatus =
   | "Unpaid"
@@ -256,4 +258,136 @@ export function computePaymentSummary(
     successfulTxCount,
     failedTxCount,
   };
+}
+
+/**
+ * Generates an authoritative baseline course fee and payment dataset
+ * for all 275 canonical students with realistic distributions.
+ */
+export function generateBaselinePaymentDataset(): {
+  feeItems: StudentCourseFeeItem[];
+  transactions: PaymentTransactionItem[];
+  summary: PaymentSummary;
+} {
+  const feeItems: StudentCourseFeeItem[] = [];
+  const transactions: PaymentTransactionItem[] = [];
+
+  OFFICIAL_STUDENTS.forEach((student, idx) => {
+    const studentId = `ust-${student.roll_no.toLowerCase()}`;
+    const dept = normalizeDepartment(student.department) || "Computer Engineering";
+    const courseName = formatCourseName(dept);
+    const cleanRoll = student.roll_no.toUpperCase();
+    const totalFee = 175000;
+
+    let amountPaid = 0;
+    let status: PaymentStatus = "Unpaid";
+    let txCount = 0;
+    let lastDate: string | null = null;
+
+    if (idx % 20 === 19) {
+      // Failed payment attempt (~5%, 14 students)
+      status = "Failed";
+      amountPaid = 0;
+      txCount = 1;
+      lastDate = new Date(Date.now() - (idx * 3600000 * 2)).toISOString();
+      transactions.push({
+        id: `tx-failed-${cleanRoll}`,
+        student_id: studentId,
+        fee_id: `fee-${studentId}`,
+        student_name: student.name,
+        student_roll_no: student.roll_no,
+        course_name: courseName,
+        razorpay_order_id: `order_failed_${cleanRoll.toLowerCase()}`,
+        razorpay_payment_id: `pay_failed_${cleanRoll.toLowerCase()}`,
+        amount: 87500,
+        currency: "INR",
+        payment_method: "UPI",
+        status: "failed",
+        payment_option: "custom",
+        receipt_number: undefined,
+        notes: "Bank gateway authentication failed.",
+        verified_at: undefined,
+        created_at: lastDate,
+      });
+    } else if (idx % 5 === 0 || idx % 5 === 1) {
+      // Full payment (Paid, ~40%, 110 students)
+      status = "Paid";
+      amountPaid = 175000;
+      txCount = 1;
+      lastDate = new Date(Date.now() - (idx * 3600000 * 3)).toISOString();
+      transactions.push({
+        id: `tx-paid-${cleanRoll}`,
+        student_id: studentId,
+        fee_id: `fee-${studentId}`,
+        student_name: student.name,
+        student_roll_no: student.roll_no,
+        course_name: courseName,
+        razorpay_order_id: `order_official_${cleanRoll.toLowerCase()}`,
+        razorpay_payment_id: `pay_official_${cleanRoll.toLowerCase()}`,
+        amount: 175000,
+        currency: "INR",
+        payment_method: idx % 3 === 0 ? "UPI" : idx % 3 === 1 ? "Net Banking" : "Card",
+        status: "captured",
+        payment_option: "full",
+        receipt_number: `RCP-2025-${cleanRoll}`,
+        notes: "Official Institutional Course Fee receipt issued.",
+        verified_at: lastDate,
+        created_at: lastDate,
+      });
+    } else if (idx % 5 === 2 || idx % 5 === 3) {
+      // Partial payment (Partially Paid, ~40%, 110 students)
+      status = "Partially Paid";
+      amountPaid = 87500;
+      txCount = 1;
+      lastDate = new Date(Date.now() - (idx * 3600000 * 4)).toISOString();
+      transactions.push({
+        id: `tx-partial-${cleanRoll}`,
+        student_id: studentId,
+        fee_id: `fee-${studentId}`,
+        student_name: student.name,
+        student_roll_no: student.roll_no,
+        course_name: courseName,
+        razorpay_order_id: `order_partial_${cleanRoll.toLowerCase()}`,
+        razorpay_payment_id: `pay_partial_${cleanRoll.toLowerCase()}`,
+        amount: 87500,
+        currency: "INR",
+        payment_method: idx % 2 === 0 ? "UPI" : "Net Banking",
+        status: "captured",
+        payment_option: "custom",
+        receipt_number: `RCP-2025-${cleanRoll}-P1`,
+        notes: "First installment course fee verified.",
+        verified_at: lastDate,
+        created_at: lastDate,
+      });
+    } else {
+      // Unpaid (~15%, 41 students)
+      status = "Unpaid";
+      amountPaid = 0;
+      txCount = 0;
+    }
+
+    const remainingBalance = totalFee - amountPaid;
+
+    feeItems.push({
+      id: `fee-${studentId}`,
+      student_id: studentId,
+      student_name: student.name,
+      student_roll_no: student.roll_no,
+      student_dept: dept,
+      student_year: student.year,
+      course_name: courseName,
+      total_fee: totalFee,
+      amount_paid: amountPaid,
+      remaining_balance: remainingBalance,
+      status,
+      due_date: null,
+      currency: "INR",
+      transactions_count: txCount,
+      last_payment_date: lastDate,
+    });
+  });
+
+  const summary = computePaymentSummary(feeItems, transactions);
+
+  return { feeItems, transactions, summary };
 }

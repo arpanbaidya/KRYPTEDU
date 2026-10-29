@@ -378,6 +378,8 @@ export function calculateAttendancePercentage(present: number, absent: number): 
   return Math.round((p / denom) * 1000) / 10;
 }
 
+export const ATTENDANCE_OVERRIDE_STORAGE_KEY = "kryptedu_authoritative_attendance_map";
+
 /**
  * Update a student's authoritative published attendance percentage live.
  * Clears cached maps so all downstream consumers immediately receive the new percentage.
@@ -387,10 +389,64 @@ export function updateStudentAuthoritativeAttendance(rollNo: string, percentage:
   if (percentage === null) {
     AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.delete(cleanRoll);
     AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.delete(`ust-${cleanRoll.toLowerCase()}`);
+    AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.delete(rollNo);
   } else {
     AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.set(cleanRoll, percentage);
     AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.set(`ust-${cleanRoll.toLowerCase()}`, percentage);
+    AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.set(rollNo, percentage);
   }
+  cachedDemoAttendanceMap = null;
+
+  if (typeof window !== "undefined") {
+    try {
+      const existing = localStorage.getItem(ATTENDANCE_OVERRIDE_STORAGE_KEY);
+      const parsed = existing ? JSON.parse(existing) : {};
+      if (percentage === null) {
+        delete parsed[cleanRoll];
+        delete parsed[`ust-${cleanRoll.toLowerCase()}`];
+      } else {
+        parsed[cleanRoll] = percentage;
+        parsed[`ust-${cleanRoll.toLowerCase()}`] = percentage;
+      }
+      localStorage.setItem(ATTENDANCE_OVERRIDE_STORAGE_KEY, JSON.stringify(parsed));
+    } catch {}
+  }
+}
+
+/**
+ * Synchronises a batch of authoritative attendance percentages live into memory and persistent client storage.
+ */
+export function syncAuthoritativeAttendanceMap(attendanceMap: Record<string, number>): void {
+  for (const [k, v] of Object.entries(attendanceMap)) {
+    if (typeof v === "number" && !Number.isNaN(v)) {
+      const cleanRoll = k.toUpperCase();
+      AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.set(cleanRoll, v);
+      AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.set(`ust-${cleanRoll.toLowerCase()}`, v);
+      AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.set(k, v);
+    }
+  }
+  cachedDemoAttendanceMap = null;
+
+  if (typeof window !== "undefined") {
+    try {
+      const existing = localStorage.getItem(ATTENDANCE_OVERRIDE_STORAGE_KEY);
+      const parsed = existing ? JSON.parse(existing) : {};
+      const merged = { ...parsed, ...attendanceMap };
+      localStorage.setItem(ATTENDANCE_OVERRIDE_STORAGE_KEY, JSON.stringify(merged));
+    } catch {}
+  }
+}
+
+/**
+ * Clears persistent overrides from local storage (used primarily for test cleanup).
+ */
+export function clearAuthoritativeAttendanceStorageForTesting(): void {
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem(ATTENDANCE_OVERRIDE_STORAGE_KEY);
+    } catch {}
+  }
+  AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.clear();
   cachedDemoAttendanceMap = null;
 }
 
@@ -401,6 +457,16 @@ export function getAuthoritativeStudentAttendance(rollNo: string): number | null
   const cleanRoll = rollNo.toUpperCase();
   if (AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.has(cleanRoll)) {
     return AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.get(cleanRoll)!;
+  }
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(ATTENDANCE_OVERRIDE_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed[cleanRoll] !== undefined) return parsed[cleanRoll];
+        if (parsed[rollNo] !== undefined) return parsed[rollNo];
+      }
+    } catch {}
   }
   const map = getAuthoritativeDemoAttendanceMap();
   return map[cleanRoll] ?? map[rollNo] ?? null;
@@ -424,6 +490,24 @@ export function getAuthoritativeDemoAttendanceMap(): Record<string, number> {
 
   const baseMap = getOrCreateBaseDemoAttendanceMap();
   const map: Record<string, number> = { ...baseMap };
+
+  // Apply any client persistent storage overrides
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(ATTENDANCE_OVERRIDE_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === "number" && !Number.isNaN(v)) {
+            const clean = k.toUpperCase();
+            AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.set(clean, v);
+            AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.set(`ust-${clean.toLowerCase()}`, v);
+            AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.set(k, v);
+          }
+        }
+      }
+    } catch {}
+  }
 
   // Apply any live overrides in O(k)
   for (const [k, v] of AUTHORITATIVE_ATTENDANCE_OVERRIDE_MAP.entries()) {

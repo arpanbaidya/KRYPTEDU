@@ -191,9 +191,10 @@ function StudentDashboard() {
         attMap[studentData.id] ??
         (studentData.attendance !== null && studentData.attendance !== undefined ? Number(studentData.attendance) : null);
       const authoritativeCgpa =
+        (studentData.cgpa !== null && studentData.cgpa !== undefined ? Number(studentData.cgpa) : null) ??
         academicsCgpaMap[studentData.roll_no] ??
         academicsCgpaMap[studentData.roll_no?.toUpperCase()] ??
-        (studentData.cgpa !== null && studentData.cgpa !== undefined ? Number(studentData.cgpa) : null);
+        null;
 
       const scoredStudent = score({
         ...(studentData as unknown as StudentRow),

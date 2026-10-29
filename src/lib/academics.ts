@@ -1937,10 +1937,16 @@ export function calculateStudentCGPA(studentResults: StudentSubjectResult[]): nu
   );
   if (published.length === 0) return null;
 
+  // Deduplicate by subjectId keeping the latest updated entry to prevent duplicate credit counting
+  const latestBySubject = new Map<string, StudentSubjectResult>();
+  for (const r of published) {
+    latestBySubject.set(r.subjectId, r);
+  }
+
   let totalWeighted = 0;
   let totalCredits = 0;
 
-  for (const r of published) {
+  for (const r of latestBySubject.values()) {
     totalWeighted += (r.gradePoint ?? 0) * r.credits;
     totalCredits += r.credits;
   }
@@ -1959,26 +1965,53 @@ export function clearAcademicsDemoResultsCache(): void {
 
 /**
  * Authoritative in-memory and operational store for published student subject results.
- * Single source of truth across Academics, Students, Analytics, Interventions, and Integration.
+ * Single source of truth across Academics, Students, Reports, and Integration.
  */
 const AUTHORITATIVE_RESULTS_MAP = new Map<string, StudentSubjectResult>(); // key: `${rollNo}_${subjectId}`
 let cachedAcademicsCgpaMap: Record<string, number> | null = null;
 
+export const ACADEMICS_PUBLISHED_STORAGE_KEY = "kryptedu_authoritative_published_results";
+export const ACADEMICS_CGPA_STORAGE_KEY = "kryptedu_authoritative_cgpa_map";
+
 /**
  * Initializes authoritative published results for configured semesters (Semesters 1 to 5).
+ * Also loads persistent published overrides from browser storage where available.
  */
 export function initializeAuthoritativeAcademicResults(): void {
-  if (AUTHORITATIVE_RESULTS_MAP.size > 0) return;
+  const needsBaseSeed = AUTHORITATIVE_RESULTS_MAP.size === 0;
 
-  for (let sem = 1; sem <= 5; sem++) {
-    const list = generateDemoResultsForOfficialStudents(sem);
-    for (const r of list) {
-      if (r.publicationStatus === "published") {
-        AUTHORITATIVE_RESULTS_MAP.set(`${r.studentRollNo}_${r.subjectId}`, { ...r });
+  if (needsBaseSeed) {
+    for (let sem = 1; sem <= 5; sem++) {
+      const list = generateDemoResultsForOfficialStudents(sem);
+      for (const r of list) {
+        if (r.publicationStatus === "published") {
+          AUTHORITATIVE_RESULTS_MAP.set(`${r.studentRollNo}_${r.subjectId}`, { ...r });
+        }
       }
     }
   }
+
+  // Load persistent published marks from browser storage if running in client environment
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(ACADEMICS_PUBLISHED_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as StudentSubjectResult[];
+        if (Array.isArray(parsed)) {
+          for (const r of parsed) {
+            if (r.publicationStatus === "published") {
+              AUTHORITATIVE_RESULTS_MAP.set(`${r.studentRollNo}_${r.subjectId}`, { ...r });
+            }
+          }
+        }
+      }
+    } catch {
+      // Storage unavailable or disabled
+    }
+  }
+
   cachedAcademicsCgpaMap = null;
+  DEMO_RESULTS_CACHE.clear();
 }
 
 // Ensure initialized
@@ -1990,20 +2023,89 @@ initializeAuthoritativeAcademicResults();
  */
 export function recordPublishedAcademicResult(record: StudentSubjectResult): void {
   if (record.publicationStatus !== "published") return;
+  initializeAuthoritativeAcademicResults();
   AUTHORITATIVE_RESULTS_MAP.set(`${record.studentRollNo}_${record.subjectId}`, { ...record });
   cachedAcademicsCgpaMap = null;
+  DEMO_RESULTS_CACHE.clear();
+  DEMO_RESULTS_CACHE.clear();
+
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(ACADEMICS_PUBLISHED_STORAGE_KEY);
+      const list: StudentSubjectResult[] = stored ? JSON.parse(stored) : [];
+      const filtered = list.filter(
+        (r) => `${r.studentRollNo}_${r.subjectId}` !== `${record.studentRollNo}_${record.subjectId}`
+      );
+      filtered.push(record);
+      localStorage.setItem(ACADEMICS_PUBLISHED_STORAGE_KEY, JSON.stringify(filtered));
+    } catch {}
+  }
 }
 
 /**
  * Batch records official published academic results.
  */
 export function recordBatchPublishedAcademicResults(records: StudentSubjectResult[]): void {
+  initializeAuthoritativeAcademicResults();
   for (const r of records) {
     if (r.publicationStatus === "published") {
       AUTHORITATIVE_RESULTS_MAP.set(`${r.studentRollNo}_${r.subjectId}`, { ...r });
     }
   }
   cachedAcademicsCgpaMap = null;
+  DEMO_RESULTS_CACHE.clear();
+
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(ACADEMICS_PUBLISHED_STORAGE_KEY);
+      const list: StudentSubjectResult[] = stored ? JSON.parse(stored) : [];
+      const map = new Map<string, StudentSubjectResult>();
+      for (const item of list) {
+        map.set(`${item.studentRollNo}_${item.subjectId}`, item);
+      }
+      for (const r of records) {
+        if (r.publicationStatus === "published") {
+          map.set(`${r.studentRollNo}_${r.subjectId}`, r);
+        }
+      }
+      localStorage.setItem(ACADEMICS_PUBLISHED_STORAGE_KEY, JSON.stringify(Array.from(map.values())));
+    } catch {}
+  }
+}
+
+/**
+ * Synchronises published academic results and updated calculated CGPAs across memory and client storage.
+ */
+export function syncAuthoritativeAcademicResults(
+  records: StudentSubjectResult[],
+  updatedCgpas?: Record<string, number>
+): void {
+  recordBatchPublishedAcademicResults(records);
+
+  if (updatedCgpas && typeof window !== "undefined") {
+    try {
+      const existing = localStorage.getItem(ACADEMICS_CGPA_STORAGE_KEY);
+      const parsed = existing ? JSON.parse(existing) : {};
+      const merged = { ...parsed, ...updatedCgpas };
+      localStorage.setItem(ACADEMICS_CGPA_STORAGE_KEY, JSON.stringify(merged));
+    } catch {}
+  }
+}
+
+/**
+ * Clears persistent overrides from local storage (used primarily for test cleanup).
+ */
+export function clearAuthoritativeAcademicsStorageForTesting(): void {
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem(ACADEMICS_PUBLISHED_STORAGE_KEY);
+      localStorage.removeItem(ACADEMICS_CGPA_STORAGE_KEY);
+    } catch {}
+  }
+  AUTHORITATIVE_RESULTS_MAP.clear();
+  cachedAcademicsCgpaMap = null;
+  DEMO_RESULTS_CACHE.clear();
+  initializeAuthoritativeAcademicResults();
 }
 
 /**
@@ -2011,9 +2113,10 @@ export function recordBatchPublishedAcademicResults(records: StudentSubjectResul
  */
 export function getStudentPublishedAcademicResults(studentRollNo: string): StudentSubjectResult[] {
   initializeAuthoritativeAcademicResults();
+  const targetNorm = studentRollNo.trim().toUpperCase();
   const list: StudentSubjectResult[] = [];
   for (const r of AUTHORITATIVE_RESULTS_MAP.values()) {
-    if (r.studentRollNo === studentRollNo && r.publicationStatus === "published") {
+    if (r.studentRollNo.trim().toUpperCase() === targetNorm && r.publicationStatus === "published") {
       list.push(r);
     }
   }
@@ -2033,10 +2136,11 @@ export function getAuthoritativeAcademicsCgpaMap(): Record<string, number> {
   const studentResultsMap = new Map<string, StudentSubjectResult[]>();
   for (const r of AUTHORITATIVE_RESULTS_MAP.values()) {
     if (r.publicationStatus === "published" && r.gradePoint !== null && r.credits > 0) {
-      if (!studentResultsMap.has(r.studentRollNo)) {
-        studentResultsMap.set(r.studentRollNo, []);
+      const normRoll = r.studentRollNo.trim().toUpperCase();
+      if (!studentResultsMap.has(normRoll)) {
+        studentResultsMap.set(normRoll, []);
       }
-      studentResultsMap.get(r.studentRollNo)!.push(r);
+      studentResultsMap.get(normRoll)!.push(r);
     }
   }
 
@@ -2045,7 +2149,27 @@ export function getAuthoritativeAcademicsCgpaMap(): Record<string, number> {
     const cgpa = calculateStudentCGPA(resList);
     if (cgpa !== null) {
       map[rollNo] = cgpa;
+      map[rollNo.toUpperCase()] = cgpa;
+      map[rollNo.toLowerCase()] = cgpa;
+      map[`ust-${rollNo.toLowerCase()}`] = cgpa;
     }
+  }
+
+  // Merge any explicitly stored CGPAs from client storage
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(ACADEMICS_CGPA_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === "number") {
+            map[k] = v;
+            map[k.toUpperCase()] = v;
+            map[k.toLowerCase()] = v;
+          }
+        }
+      }
+    } catch {}
   }
 
   cachedAcademicsCgpaMap = map;
@@ -2254,6 +2378,13 @@ export function generateDemoResultsForOfficialStudents(
 
     for (let subIdx = 0; subIdx < subjects.length; subIdx++) {
       const sub = subjects[subIdx];
+
+      const published = AUTHORITATIVE_RESULTS_MAP.get(`${stu.roll_no}_${sub.id}`);
+      if (published && published.publicationStatus === "published") {
+        results.push({ ...published });
+        continue;
+      }
+
       // Deterministic pseudo-random marks generator
       const pseudoHash = (stuSeed * 37 + subIdx * 53 + semesterNumber * 17) % 1000;
       
