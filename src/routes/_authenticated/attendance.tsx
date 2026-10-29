@@ -735,11 +735,11 @@ function AttendancePage() {
 
             <Button
               onClick={() => setIsSubmitModalOpen(true)}
-              disabled={isWeekendSelected || activeAttendance?.session?.status === "published"}
-              className="gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2.5 shadow-sm transition-transform active:scale-95"
+              disabled={isWeekendSelected}
+              className="gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2.5 shadow-sm transition-transform active:scale-95 cursor-pointer"
             >
               <Send className="size-3.5" />
-              {activeAttendance?.session?.status === "published" ? "Session Published" : "Submit Attendance"}
+              Submit Attendance
             </Button>
           </div>
         )}
