@@ -486,8 +486,6 @@ export function invalidateAttendanceCache(): void {
  * Highly optimized via permanent base map memoization (O(1) memory clone).
  */
 export function getAuthoritativeDemoAttendanceMap(): Record<string, number> {
-  if (cachedDemoAttendanceMap) return cachedDemoAttendanceMap;
-
   const baseMap = getOrCreateBaseDemoAttendanceMap();
   const map: Record<string, number> = { ...baseMap };
 
@@ -516,6 +514,61 @@ export function getAuthoritativeDemoAttendanceMap(): Record<string, number> {
 
   cachedDemoAttendanceMap = map;
   return map;
+}
+
+/**
+ * Authoritatively computes a student's cumulative attendance percentage across the 3-month
+ * instructional semester (Aug 1 - Oct 31, 2026), incorporating any date overrides or local drafts.
+ * Adheres strictly to the institutional formula:
+ * Attendance % = (Present Sessions / (Present + Absent Sessions)) * 100
+ * Excludes Not Considered from the denominator.
+ */
+export function computeStudentCumulativeAttendance(
+  rollNo: string,
+  overrides?: Record<string, AttendanceStatus | null>
+): number | null {
+  const cleanRoll = rollNo.toUpperCase();
+  const stuIdx = OFFICIAL_STUDENTS.findIndex(
+    (s) => s.roll_no.toUpperCase() === cleanRoll || `ust-${s.roll_no.toLowerCase()}` === rollNo.toLowerCase()
+  );
+  if (stuIdx === -1) return null;
+
+  const stu = OFFICIAL_STUDENTS[stuIdx];
+  const weekdays = getDemoPeriodWeekdays();
+  let present = 0;
+  let absent = 0;
+
+  for (const dateStr of weekdays) {
+    let status: AttendanceStatus | null = null;
+    if (overrides && overrides[dateStr] !== undefined) {
+      status = overrides[dateStr];
+    } else if (typeof window !== "undefined") {
+      try {
+        const savedDraft = localStorage.getItem(`kryptedu_att_draft_${stu.department}_${dateStr}`);
+        if (savedDraft) {
+          const parsed = JSON.parse(savedDraft);
+          const sId = `ust-${stu.roll_no.toLowerCase()}`;
+          if (parsed[sId] || parsed[stu.roll_no]) {
+            status = parsed[sId] || parsed[stu.roll_no];
+          }
+        }
+      } catch {}
+    }
+
+    if (!status) {
+      status = deterministicDemoStatus(stu.roll_no, dateStr, stuIdx);
+    }
+
+    if (status === "present") {
+      present++;
+    } else if (status === "absent") {
+      absent++;
+    }
+  }
+
+  const denom = present + absent;
+  if (denom === 0) return null;
+  return Math.round((present / denom) * 1000) / 10;
 }
 
 /**

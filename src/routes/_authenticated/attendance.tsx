@@ -51,6 +51,7 @@ import {
   type AttendanceStatus,
   calculateAttendanceSummary,
   syncAuthoritativeAttendanceMap,
+  computeStudentCumulativeAttendance,
   isWeekend,
   deterministicDemoStatus,
   DEMO_ATTENDANCE_CONFIG,
@@ -482,27 +483,38 @@ function AttendancePage() {
       );
 
       // 2. Instantly update the React Query cache for the students table so the Students section in the sidebar reflects the new attendance immediately!
-      if (res.studentAttendance) {
-        syncAuthoritativeAttendanceMap(res.studentAttendance);
-        queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
-          if (!Array.isArray(old)) return old;
-          return old.map((student: any) => {
-            const cleanRoll = student.roll_no?.toUpperCase();
-            const sid = student.id;
-            const updated =
-              res.studentAttendance[cleanRoll] ??
-              res.studentAttendance[student.roll_no] ??
-              res.studentAttendance[sid];
-            if (updated !== undefined) {
-              return score({
-                ...student,
-                attendance: updated,
-              });
-            }
-            return student;
-          });
+      const finalAttendanceMap: Record<string, number> = { ...(res?.studentAttendance || {}) };
+      rawCohortStudents.forEach((s) => {
+        const m = marks[s.student_id] || s.status;
+        const newPct = computeStudentCumulativeAttendance(s.student_roll_no, { [selectedDate]: m });
+        if (newPct !== null) {
+          const rollUpper = s.student_roll_no.toUpperCase();
+          finalAttendanceMap[rollUpper] = newPct;
+          finalAttendanceMap[s.student_roll_no] = newPct;
+          finalAttendanceMap[s.student_id] = newPct;
+          finalAttendanceMap[`ust-${rollUpper.toLowerCase()}`] = newPct;
+        }
+      });
+
+      syncAuthoritativeAttendanceMap(finalAttendanceMap);
+      queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((student: any) => {
+          const cleanRoll = student.roll_no?.toUpperCase();
+          const sid = student.id;
+          const updated =
+            finalAttendanceMap[cleanRoll] ??
+            finalAttendanceMap[student.roll_no] ??
+            finalAttendanceMap[sid];
+          if (updated !== undefined) {
+            return score({
+              ...student,
+              attendance: updated,
+            });
+          }
+          return student;
         });
-      }
+      });
 
       // 3. Mark background queries as stale without forcing active screen reloads
       queryClient.invalidateQueries({ queryKey: ["students"], refetchType: "none" });
@@ -525,6 +537,45 @@ function AttendancePage() {
     const updated = { ...marks, [studentId]: status };
     setMarks(updated);
     persistDraftToStorage(updated);
+
+    // Synchronize attendance immediately into authoritative client store and Students table cache
+    const matched = OFFICIAL_STUDENTS.find(
+      (s) =>
+        `ust-${s.roll_no.toLowerCase()}` === studentId.toLowerCase() ||
+        s.roll_no.toUpperCase() === studentId.toUpperCase()
+    );
+    if (matched) {
+      const newPct = computeStudentCumulativeAttendance(matched.roll_no, { [selectedDate]: status });
+      if (newPct !== null) {
+        const rollUpper = matched.roll_no.toUpperCase();
+        syncAuthoritativeAttendanceMap({
+          [rollUpper]: newPct,
+          [matched.roll_no]: newPct,
+          [studentId]: newPct,
+          [`ust-${rollUpper.toLowerCase()}`]: newPct,
+        });
+
+        // Instant optimistic update for the Students table query cache
+        queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((student: any) => {
+            const cleanRoll = student.roll_no?.toUpperCase();
+            if (
+              cleanRoll === rollUpper ||
+              student.id === studentId ||
+              student.id === `ust-${rollUpper.toLowerCase()}`
+            ) {
+              return score({
+                ...student,
+                attendance: newPct,
+              });
+            }
+            return student;
+          });
+        });
+      }
+    }
+
     markSingleMutation.mutate({ student_id: studentId, status });
   };
 
@@ -546,14 +597,46 @@ function AttendancePage() {
 
     const updated = { ...marks };
     const targetIds: string[] = [];
+    const batchAttendanceMap: Record<string, number> = {};
+
     targetStudents.forEach((s) => {
       updated[s.student_id] = "present";
       targetIds.push(s.student_id);
+
+      const newPct = computeStudentCumulativeAttendance(s.student_roll_no, { [selectedDate]: "present" });
+      if (newPct !== null) {
+        const rollUpper = s.student_roll_no.toUpperCase();
+        batchAttendanceMap[rollUpper] = newPct;
+        batchAttendanceMap[s.student_roll_no] = newPct;
+        batchAttendanceMap[s.student_id] = newPct;
+        batchAttendanceMap[`ust-${rollUpper.toLowerCase()}`] = newPct;
+      }
     });
 
     setMarks(updated);
     persistDraftToStorage(updated);
     setBulkActionConfirm({ open: false, type: "unmarked", count: 0 });
+
+    if (Object.keys(batchAttendanceMap).length > 0) {
+      syncAuthoritativeAttendanceMap(batchAttendanceMap);
+      queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((student: any) => {
+          const cleanRoll = student.roll_no?.toUpperCase();
+          const updatedVal =
+            batchAttendanceMap[cleanRoll] ??
+            batchAttendanceMap[student.roll_no] ??
+            batchAttendanceMap[student.id];
+          if (updatedVal !== undefined) {
+            return score({
+              ...student,
+              attendance: updatedVal,
+            });
+          }
+          return student;
+        });
+      });
+    }
 
     markBatchMutation.mutate({
       status: "present",
