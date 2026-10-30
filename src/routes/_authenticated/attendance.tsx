@@ -542,54 +542,72 @@ function AttendancePage() {
   });
 
   // Handler for marking a single student (idempotent, prevents duplicates)
-  const handleMark = (studentId: string, status: AttendanceStatus) => {
+  const handleMark = (studentId: string, status: AttendanceStatus, studentRollNo?: string) => {
     if (!canEdit) return;
     const current = marks[studentId];
     if (current === status) return; // Prevent redundant clicks
 
-    const updated = { ...marks, [studentId]: status };
+    const cohortStudent = rawCohortStudents.find(
+      (cs) =>
+        cs.student_id === studentId ||
+        (studentRollNo && cs.student_roll_no?.toUpperCase() === studentRollNo.toUpperCase())
+    );
+    const resolvedRoll = studentRollNo || cohortStudent?.student_roll_no || studentId;
+    const cleanRoll = resolvedRoll.toUpperCase();
+    const ustId = `ust-${cleanRoll.toLowerCase()}`;
+
+    const updated = {
+      ...marks,
+      [studentId]: status,
+      [resolvedRoll]: status,
+      [cleanRoll]: status,
+      [ustId]: status,
+    };
     setMarks(updated);
     persistDraftToStorage(updated);
 
     // Synchronize attendance immediately into authoritative client store and Students table cache
     const matched = OFFICIAL_STUDENTS.find(
       (s) =>
+        s.roll_no.toUpperCase() === cleanRoll ||
         `ust-${s.roll_no.toLowerCase()}` === studentId.toLowerCase() ||
         s.roll_no.toUpperCase() === studentId.toUpperCase()
     );
-    if (matched) {
-      const newPct = computeStudentCumulativeAttendance(matched.roll_no, { [selectedDate]: status });
-      if (newPct !== null) {
-        const rollUpper = matched.roll_no.toUpperCase();
-        syncAuthoritativeAttendanceMap({
-          [rollUpper]: newPct,
-          [matched.roll_no]: newPct,
-          [studentId]: newPct,
-          [`ust-${rollUpper.toLowerCase()}`]: newPct,
-        });
+    const targetRoll = matched ? matched.roll_no : resolvedRoll;
 
-        // Instant optimistic update for the Students table query cache
-        queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
-          if (!Array.isArray(old)) return old;
-          return old.map((student: any) => {
-            const cleanRoll = student.roll_no?.toUpperCase();
-            if (
-              cleanRoll === rollUpper ||
-              student.id === studentId ||
-              student.id === `ust-${rollUpper.toLowerCase()}`
-            ) {
-              return score({
-                ...student,
-                attendance: newPct,
-              });
-            }
-            return student;
-          });
+    const newPct = computeStudentCumulativeAttendance(targetRoll, { [selectedDate]: status });
+    if (newPct !== null) {
+      const rollUpper = targetRoll.toUpperCase();
+      const ustTargetId = `ust-${rollUpper.toLowerCase()}`;
+      syncAuthoritativeAttendanceMap({
+        [rollUpper]: newPct,
+        [targetRoll]: newPct,
+        [studentId]: newPct,
+        [ustTargetId]: newPct,
+      });
+
+      // Instant optimistic update for the Students table query cache
+      queryClient.setQueriesData({ queryKey: ["students"] }, (old: any) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((student: any) => {
+          const sRoll = student.roll_no?.toUpperCase();
+          if (
+            sRoll === rollUpper ||
+            student.id === studentId ||
+            student.id === ustTargetId ||
+            student.id === targetRoll
+          ) {
+            return score({
+              ...student,
+              attendance: newPct,
+            });
+          }
+          return student;
         });
-      }
+      });
     }
 
-    markSingleMutation.mutate({ student_id: studentId, status });
+    markSingleMutation.mutate({ student_id: studentId, roll_no: targetRoll, status });
   };
 
   // Handler for confirmed bulk marking
@@ -1210,7 +1228,7 @@ function AttendancePage() {
                           <div className="inline-flex rounded-xl border border-border p-0.5 bg-secondary/30 gap-1 shadow-xs">
                             <button
                               type="button"
-                              onClick={() => handleMark(s.student_id, "present")}
+                              onClick={() => handleMark(s.student_id, "present", s.student_roll_no)}
                               title="Mark Present"
                               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                                 currentStatus === "present"
@@ -1223,7 +1241,7 @@ function AttendancePage() {
 
                             <button
                               type="button"
-                              onClick={() => handleMark(s.student_id, "absent")}
+                              onClick={() => handleMark(s.student_id, "absent", s.student_roll_no)}
                               title="Mark Absent"
                               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                                 currentStatus === "absent"
@@ -1236,7 +1254,7 @@ function AttendancePage() {
 
                             <button
                               type="button"
-                              onClick={() => handleMark(s.student_id, "not_considered")}
+                              onClick={() => handleMark(s.student_id, "not_considered", s.student_roll_no)}
                               title="Mark Not Considered"
                               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                                 currentStatus === "not_considered"

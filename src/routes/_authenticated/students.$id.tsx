@@ -5,13 +5,14 @@ import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 import { studentsQuery } from "@/lib/data";
 import { Bar, Card, Empty, PageHeader, RiskBadge, ScoreRing, SectionTitle } from "@/components/kr";
 import { Badge } from "@/components/ui/badge";
-import { getStudentDemoMonthlyStats } from "@/lib/attendance";
+import { getStudentDemoMonthlyStats, getAuthoritativeStudentAttendance } from "@/lib/attendance";
+import { score } from "@/lib/scoring";
 
 export const Route = createFileRoute("/_authenticated/students/$id")({
   head: () => ({ meta: [{ title: "Student profile — KRYPTEDU" }, { name: "description", content: "Student intelligence profile." }, { property: "og:title", content: "Student profile — KRYPTEDU" }, { property: "og:description", content: "Student intelligence profile." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }] }),
   loader: async ({ context, params }) => {
     const list = await context.queryClient.ensureQueryData(studentsQuery);
-    if (!list.find((s) => s.id === params.id)) throw notFound();
+    if (!list.find((s) => s.id === params.id || s.roll_no?.toUpperCase() === params.id?.toUpperCase() || `ust-${s.roll_no?.toLowerCase()}` === params.id?.toLowerCase())) throw notFound();
   },
   component: Profile,
   notFoundComponent: () => <Empty title="Student not found" />,
@@ -29,7 +30,21 @@ function trend(seed: number, end: number, spread: number, n = 6) {
 function Profile() {
   const { id } = Route.useParams();
   const { data: students } = useSuspenseQuery(studentsQuery);
-  const s = students.find((x) => x.id === id)!;
+  const sRaw = students.find(
+    (x) =>
+      x.id === id ||
+      x.roll_no?.toUpperCase() === id?.toUpperCase() ||
+      `ust-${x.roll_no?.toLowerCase()}` === id?.toLowerCase()
+  );
+  if (!sRaw) throw notFound();
+
+  // Authoritative real-time attendance fallback & dynamic synchronization
+  const liveAtt = getAuthoritativeStudentAttendance(sRaw.roll_no);
+  const s =
+    liveAtt !== null && liveAtt !== sRaw.rawAttendance
+      ? score({ ...sRaw, attendance: liveAtt })
+      : sRaw;
+
   const seed = s.roll_no.charCodeAt(s.roll_no.length - 1);
   const gpa = trend(seed, s.cgpa, 0.6).map((v, i) => ({ sem: `S${i + 1}`, v: Math.min(10, Math.max(4, v)) }));
   

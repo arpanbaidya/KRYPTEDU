@@ -741,6 +741,7 @@ export const markAttendanceDraft = createServerFn({ method: "POST" })
       department: string;
       date: string;
       student_id: string;
+      roll_no?: string;
       status: AttendanceStatus;
     }) => d
   )
@@ -783,11 +784,17 @@ export const markAttendanceDraft = createServerFn({ method: "POST" })
     }
 
     const matched = OFFICIAL_STUDENTS.find(
-      (s) => s.department === targetDept && `ust-${s.roll_no.toLowerCase()}` === data.student_id
-    ) || { roll_no: data.student_id };
+      (s) =>
+        (data.roll_no && s.roll_no.toUpperCase() === data.roll_no.toUpperCase()) ||
+        `ust-${s.roll_no.toLowerCase()}` === data.student_id.toLowerCase() ||
+        s.roll_no.toUpperCase() === data.student_id.toUpperCase() ||
+        s.id === data.student_id
+    ) || { roll_no: data.roll_no || data.student_id };
 
-    MEMORY_RECORDS.set(`${memSession.id}_${matched.roll_no}`, {
-      id: `rec-${memSession.id}-${matched.roll_no}`,
+    const cleanRoll = matched.roll_no.toUpperCase();
+    const ustId = `ust-${cleanRoll.toLowerCase()}`;
+    const recPayload = {
+      id: `rec-${memSession.id}-${cleanRoll}`,
       session_id: memSession.id,
       student_id: data.student_id,
       status: data.status,
@@ -796,7 +803,12 @@ export const markAttendanceDraft = createServerFn({ method: "POST" })
       is_demo: isDemoPeriod,
       created_at: nowIso,
       updated_at: nowIso,
-    });
+    };
+
+    MEMORY_RECORDS.set(`${memSession.id}_${cleanRoll}`, recPayload);
+    MEMORY_RECORDS.set(`${memSession.id}_${matched.roll_no}`, recPayload);
+    MEMORY_RECORDS.set(`${memSession.id}_${data.student_id}`, recPayload);
+    MEMORY_RECORDS.set(`${memSession.id}_${ustId}`, recPayload);
 
     try {
       let { data: session } = await supabase
@@ -846,7 +858,11 @@ export const markAttendanceDraft = createServerFn({ method: "POST" })
       let absent = 0;
       for (const sess of MEMORY_SESSIONS.values()) {
         if (sess.status === "published" && sess.department === targetDept) {
-          const rec = MEMORY_RECORDS.get(`${sess.id}_${matched.roll_no}`);
+          const rec =
+            MEMORY_RECORDS.get(`${sess.id}_${cleanRoll}`) ||
+            MEMORY_RECORDS.get(`${sess.id}_${matched.roll_no}`) ||
+            MEMORY_RECORDS.get(`${sess.id}_${data.student_id}`) ||
+            MEMORY_RECORDS.get(`${sess.id}_${ustId}`);
           if (rec) {
             if (rec.status === "present") present++;
             else if (rec.status === "absent") absent++;
@@ -857,6 +873,8 @@ export const markAttendanceDraft = createServerFn({ method: "POST" })
       if (pct !== null) {
         MEMORY_STUDENT_ATTENDANCE.set(data.student_id, pct);
         MEMORY_STUDENT_ATTENDANCE.set(matched.roll_no, pct);
+        MEMORY_STUDENT_ATTENDANCE.set(cleanRoll, pct);
+        MEMORY_STUDENT_ATTENDANCE.set(ustId, pct);
         updateStudentAuthoritativeAttendance(matched.roll_no, pct);
 
         if (supabase) {
@@ -874,6 +892,7 @@ export const markAttendanceDraft = createServerFn({ method: "POST" })
           success: true,
           student_id: data.student_id,
           roll_no: matched.roll_no,
+          clean_roll: cleanRoll,
           status: data.status,
           newAttendance: pct,
           isAlreadyPublished: true,
@@ -886,6 +905,7 @@ export const markAttendanceDraft = createServerFn({ method: "POST" })
       success: true,
       student_id: data.student_id,
       roll_no: matched.roll_no,
+      clean_roll: cleanRoll,
       status: data.status,
       isAlreadyPublished,
       updated_at: nowIso,

@@ -465,8 +465,14 @@ export function getAuthoritativeStudentAttendance(rollNo: string): number | null
         const parsed = JSON.parse(stored);
         if (parsed[cleanRoll] !== undefined) return parsed[cleanRoll];
         if (parsed[rollNo] !== undefined) return parsed[rollNo];
+        if (parsed[`ust-${cleanRoll.toLowerCase()}`] !== undefined) return parsed[`ust-${cleanRoll.toLowerCase()}`];
       }
     } catch {}
+
+    const computed = computeStudentCumulativeAttendance(rollNo);
+    if (computed !== null) {
+      return computed;
+    }
   }
   const map = getAuthoritativeDemoAttendanceMap();
   return map[cleanRoll] ?? map[rollNo] ?? null;
@@ -548,8 +554,20 @@ export function computeStudentCumulativeAttendance(
         if (savedDraft) {
           const parsed = JSON.parse(savedDraft);
           const sId = `ust-${stu.roll_no.toLowerCase()}`;
-          if (parsed[sId] || parsed[stu.roll_no]) {
-            status = parsed[sId] || parsed[stu.roll_no];
+          const rollUpper = stu.roll_no.toUpperCase();
+          if (parsed[sId] !== undefined || parsed[stu.roll_no] !== undefined || parsed[rollUpper] !== undefined) {
+            status = (parsed[sId] ?? parsed[stu.roll_no] ?? parsed[rollUpper]) as AttendanceStatus;
+          } else {
+            for (const [k, v] of Object.entries(parsed)) {
+              if (
+                k.toUpperCase() === rollUpper ||
+                k.toLowerCase() === sId.toLowerCase() ||
+                k.toLowerCase() === stu.roll_no.toLowerCase()
+              ) {
+                status = v as AttendanceStatus;
+                break;
+              }
+            }
           }
         }
       } catch {}

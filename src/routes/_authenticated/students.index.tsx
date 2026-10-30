@@ -7,6 +7,8 @@ import { Card, Empty, PageHeader, Pill, RiskBadge, StudentLink } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { getAuthoritativeStudentAttendance } from "@/lib/attendance";
+import { score } from "@/lib/scoring";
 
 export const Route = createFileRoute("/_authenticated/students/")({
   head: () => ({
@@ -46,7 +48,15 @@ function Students() {
 
   const list = useMemo(() => {
     const qLower = deferredQ.toLowerCase();
-    const result = data.filter((s) => {
+    const liveSynced = data.map((student) => {
+      const liveAtt = getAuthoritativeStudentAttendance(student.roll_no);
+      if (liveAtt !== null && liveAtt !== student.rawAttendance) {
+        return score({ ...student, attendance: liveAtt });
+      }
+      return student;
+    });
+
+    const result = liveSynced.filter((s) => {
       const matchDept = dept === "All" || s.department === dept;
       const matchRisk =
         risk === "All" ||

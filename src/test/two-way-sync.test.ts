@@ -7,6 +7,7 @@ import {
   syncAuthoritativeAttendanceMap,
   getAuthoritativeStudentAttendance,
   getAuthoritativeDemoAttendanceMap,
+  computeStudentCumulativeAttendance,
   invalidateAttendanceCache,
   type AttendanceStatus,
 } from "../lib/attendance";
@@ -362,5 +363,43 @@ describe("Two-Way Synchronisation: Attendance and Academics CGPA", () => {
     expect(studentScored.rawAttendance).toBe(88.7);
     // Academic index = CGPA (8.04/10*100*0.5 = 40.2) + Attendance (88.7*0.3 = 26.61) + LMS (0) = 66.81 -> 67
     expect(studentScored.academicIndex).toBe(67);
+  });
+
+  // 14. Marking Aanosh Mukesh Lingapur absent on 2026-10-30 updates cumulative attendance to 92.2%
+  it("Scenario 14: Marking Aanosh Mukesh Lingapur absent on 2026-10-30 updates cumulative attendance from 93.8% to 92.2%", () => {
+    const aanosh = OFFICIAL_STUDENTS[0];
+    expect(aanosh.roll_no).toBe("UST24R0102001");
+
+    // Baseline attendance is 93.8%
+    const baseline = computeStudentCumulativeAttendance(aanosh.roll_no);
+    expect(baseline).toBe(93.8);
+
+    // Marking absent on 2026-10-30 updates attendance to 92.2%
+    const updated = computeStudentCumulativeAttendance(aanosh.roll_no, { "2026-10-30": "absent" });
+    expect(updated).toBe(92.2);
+
+    // Sync authoritative map
+    syncAuthoritativeAttendanceMap({
+      [aanosh.roll_no]: updated!,
+      [`ust-${aanosh.roll_no.toLowerCase()}`]: updated!,
+    });
+
+    expect(getAuthoritativeStudentAttendance(aanosh.roll_no)).toBe(92.2);
+
+    // Check score calculation reflecting 92.2%
+    const studentScored = score({
+      id: `ust-${aanosh.roll_no.toLowerCase()}`,
+      roll_no: aanosh.roll_no,
+      name: aanosh.name,
+      department: aanosh.department,
+      year: aanosh.year,
+      attendance: updated,
+      cgpa: 8.05,
+      lms_activity: 0,
+      engagement: 0,
+    });
+
+    expect(studentScored.attendance).toBe(92.2);
+    expect(studentScored.rawAttendance).toBe(92.2);
   });
 });
