@@ -527,8 +527,23 @@ export const getAttendanceDashboardData = createServerFn({ method: "POST" })
         publishedRecords = getStudentDemoRecords(student.roll_no, student.department);
       }
 
+      const cleanRoll = student.roll_no.toUpperCase();
+      const ustId = `ust-${cleanRoll.toLowerCase()}`;
+      publishedRecords = publishedRecords.map((r) => {
+        const memRec =
+          MEMORY_RECORDS.get(`${r.session_id}_${cleanRoll}`) ||
+          MEMORY_RECORDS.get(`${r.session_id}_${student.roll_no}`) ||
+          MEMORY_RECORDS.get(`${r.session_id}_${student.id}`) ||
+          MEMORY_RECORDS.get(`${r.session_id}_${ustId}`);
+        return memRec ? { ...r, status: memRec.status, updated_at: memRec.updated_at } : r;
+      });
+
       publishedRecords.sort((a, b) => b.attendance_date.localeCompare(a.attendance_date));
-      const overall = calculateStudentOverallAttendance(publishedRecords);
+      let overall = calculateStudentOverallAttendance(publishedRecords);
+      const memOverall = MEMORY_STUDENT_ATTENDANCE.get(cleanRoll) ?? MEMORY_STUDENT_ATTENDANCE.get(student.roll_no);
+      if (memOverall !== undefined && memOverall !== null) {
+        overall = { ...overall, overallAttendancePercentage: memOverall };
+      }
       const monthly = calculateStudentMonthlyAttendance(publishedRecords);
 
       return {
@@ -1367,9 +1382,15 @@ export const getStudentAttendanceHistory = createServerFn({ method: "POST" })
     }
 
     const records: AttendanceRecordItem[] = [];
+    const cleanStuRoll = stu.roll_no.toUpperCase();
+    const ustStuId = `ust-${cleanStuRoll.toLowerCase()}`;
     for (const sess of MEMORY_SESSIONS.values()) {
       if (sess.status === "published" && sess.department === stu.department) {
-        const rec = MEMORY_RECORDS.get(`${sess.id}_${stu.roll_no}`);
+        const rec =
+          MEMORY_RECORDS.get(`${sess.id}_${cleanStuRoll}`) ||
+          MEMORY_RECORDS.get(`${sess.id}_${stu.roll_no}`) ||
+          MEMORY_RECORDS.get(`${sess.id}_${studentId}`) ||
+          MEMORY_RECORDS.get(`${sess.id}_${ustStuId}`);
         if (rec) {
           records.push({
             id: rec.id,
@@ -1388,7 +1409,11 @@ export const getStudentAttendanceHistory = createServerFn({ method: "POST" })
     }
 
     records.sort((a, b) => b.attendance_date.localeCompare(a.attendance_date));
-    const overall = calculateStudentOverallAttendance(records);
+    let overall = calculateStudentOverallAttendance(records);
+    const memAtt = MEMORY_STUDENT_ATTENDANCE.get(cleanStuRoll) ?? MEMORY_STUDENT_ATTENDANCE.get(stu.roll_no);
+    if (memAtt !== undefined && memAtt !== null) {
+      overall = { ...overall, overallAttendancePercentage: memAtt };
+    }
     const monthly = calculateStudentMonthlyAttendance(records);
 
     return {
@@ -1465,8 +1490,23 @@ export const getStudentAttendanceData = createServerFn({ method: "POST" })
       publishedRecords = getStudentDemoRecords(student.roll_no, student.department);
     }
 
+    const cleanRoll = student.roll_no.toUpperCase();
+    const ustId = `ust-${cleanRoll.toLowerCase()}`;
+    publishedRecords = publishedRecords.map((r) => {
+      const memRec =
+        MEMORY_RECORDS.get(`${r.session_id}_${cleanRoll}`) ||
+        MEMORY_RECORDS.get(`${r.session_id}_${student.roll_no}`) ||
+        MEMORY_RECORDS.get(`${r.session_id}_${student.id}`) ||
+        MEMORY_RECORDS.get(`${r.session_id}_${ustId}`);
+      return memRec ? { ...r, status: memRec.status, updated_at: memRec.updated_at } : r;
+    });
+
     publishedRecords.sort((a, b) => b.attendance_date.localeCompare(a.attendance_date));
-    const overall = calculateStudentOverallAttendance(publishedRecords);
+    let overall = calculateStudentOverallAttendance(publishedRecords);
+    const memOverall = MEMORY_STUDENT_ATTENDANCE.get(cleanRoll) ?? MEMORY_STUDENT_ATTENDANCE.get(student.roll_no);
+    if (memOverall !== undefined && memOverall !== null) {
+      overall = { ...overall, overallAttendancePercentage: memOverall };
+    }
     const monthly = calculateStudentMonthlyAttendance(publishedRecords);
 
     return {

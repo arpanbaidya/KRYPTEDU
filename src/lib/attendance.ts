@@ -381,6 +381,40 @@ export function calculateAttendancePercentage(present: number, absent: number): 
 export const ATTENDANCE_OVERRIDE_STORAGE_KEY = "kryptedu_authoritative_attendance_map";
 
 /**
+ * Helper to retrieve stored student status for a given date from persistent client storage
+ * (published sessions or active drafts).
+ */
+export function getStoredStudentStatusForDate(
+  dept: string,
+  dateStr: string,
+  rollNo: string
+): AttendanceStatus | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw =
+      localStorage.getItem(`kryptedu_att_published_${dept}_${dateStr}`) ||
+      localStorage.getItem(`kryptedu_att_draft_${dept}_${dateStr}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const sId = `ust-${rollNo.toLowerCase()}`;
+    const rollUpper = rollNo.toUpperCase();
+    if (parsed[sId] !== undefined) return parsed[sId];
+    if (parsed[rollNo] !== undefined) return parsed[rollNo];
+    if (parsed[rollUpper] !== undefined) return parsed[rollUpper];
+    for (const [k, v] of Object.entries(parsed)) {
+      if (
+        k.toUpperCase() === rollUpper ||
+        k.toLowerCase() === sId.toLowerCase() ||
+        k.toLowerCase() === rollNo.toLowerCase()
+      ) {
+        return v as AttendanceStatus;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+/**
  * Update a student's authoritative published attendance percentage live.
  * Clears cached maps so all downstream consumers immediately receive the new percentage.
  */
@@ -548,29 +582,8 @@ export function computeStudentCumulativeAttendance(
     let status: AttendanceStatus | null = null;
     if (overrides && overrides[dateStr] !== undefined) {
       status = overrides[dateStr];
-    } else if (typeof window !== "undefined") {
-      try {
-        const savedDraft = localStorage.getItem(`kryptedu_att_draft_${stu.department}_${dateStr}`);
-        if (savedDraft) {
-          const parsed = JSON.parse(savedDraft);
-          const sId = `ust-${stu.roll_no.toLowerCase()}`;
-          const rollUpper = stu.roll_no.toUpperCase();
-          if (parsed[sId] !== undefined || parsed[stu.roll_no] !== undefined || parsed[rollUpper] !== undefined) {
-            status = (parsed[sId] ?? parsed[stu.roll_no] ?? parsed[rollUpper]) as AttendanceStatus;
-          } else {
-            for (const [k, v] of Object.entries(parsed)) {
-              if (
-                k.toUpperCase() === rollUpper ||
-                k.toLowerCase() === sId.toLowerCase() ||
-                k.toLowerCase() === stu.roll_no.toLowerCase()
-              ) {
-                status = v as AttendanceStatus;
-                break;
-              }
-            }
-          }
-        }
-      } catch {}
+    } else {
+      status = getStoredStudentStatusForDate(stu.department, dateStr, stu.roll_no);
     }
 
     if (!status) {
@@ -601,19 +614,7 @@ export function getStudentDemoMonthlyStats(rollNo: string): MonthlyAttendanceSta
   const stu = OFFICIAL_STUDENTS[stuIdx];
   const weekdays = getDemoPeriodWeekdays();
   const records = weekdays.map((dateStr) => {
-    let status: AttendanceStatus | null = null;
-    if (typeof window !== "undefined") {
-      try {
-        const savedDraft = localStorage.getItem(`kryptedu_att_draft_${stu.department}_${dateStr}`);
-        if (savedDraft) {
-          const parsed = JSON.parse(savedDraft);
-          const sId = `ust-${stu.roll_no.toLowerCase()}`;
-          if (parsed[sId] || parsed[stu.roll_no]) {
-            status = parsed[sId] || parsed[stu.roll_no];
-          }
-        }
-      } catch {}
-    }
+    let status = getStoredStudentStatusForDate(stu.department, dateStr, stu.roll_no);
     if (!status) {
       status = deterministicDemoStatus(rollNo, dateStr, stuIdx);
     }
@@ -632,10 +633,12 @@ export function getStudentDemoMonthlyStats(rollNo: string): MonthlyAttendanceSta
  */
 export function getStudentDemoRecords(
   rollNo: string,
-  dept?: CanonicalDepartment
+  dept?: CanonicalDepartment,
+  overrides?: Record<string, AttendanceStatus | null>
 ): AttendanceRecordItem[] {
+  const cleanRoll = rollNo.toUpperCase();
   const stuIdx = OFFICIAL_STUDENTS.findIndex(
-    (s) => s.roll_no.toLowerCase() === rollNo.toLowerCase()
+    (s) => s.roll_no.toUpperCase() === cleanRoll || `ust-${s.roll_no.toLowerCase()}` === rollNo.toLowerCase()
   );
   if (stuIdx === -1) return [];
 
@@ -645,7 +648,17 @@ export function getStudentDemoRecords(
   const records: AttendanceRecordItem[] = [];
 
   for (const dateStr of weekdays) {
-    const status = deterministicDemoStatus(stu.roll_no, dateStr, stuIdx);
+    let status: AttendanceStatus | null = null;
+    if (overrides && overrides[dateStr] !== undefined) {
+      status = overrides[dateStr];
+    } else {
+      status = getStoredStudentStatusForDate(targetDept, dateStr, stu.roll_no);
+    }
+
+    if (!status) {
+      status = deterministicDemoStatus(stu.roll_no, dateStr, stuIdx);
+    }
+
     const sessId = `sess-${targetDept}_${dateStr}`;
     records.push({
       id: `rec-${sessId}-${stu.roll_no}`,

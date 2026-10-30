@@ -51,6 +51,7 @@ import {
   type AttendanceStatus,
   calculateAttendanceSummary,
   syncAuthoritativeAttendanceMap,
+  getAuthoritativeStudentAttendance,
   computeStudentCumulativeAttendance,
   isWeekend,
   deterministicDemoStatus,
@@ -464,6 +465,20 @@ function AttendancePage() {
       setIsSubmitModalOpen(false);
       try {
         localStorage.removeItem(`kryptedu_att_draft_${normalizedDept}_${selectedDate}`);
+        const publishedObj: Record<string, AttendanceStatus> = {};
+        rawCohortStudents.forEach((s) => {
+          const m = marks[s.student_id] || marks[s.student_roll_no] || marks[s.student_roll_no?.toUpperCase()] || s.status;
+          if (m) {
+            publishedObj[s.student_id] = m;
+            publishedObj[s.student_roll_no] = m;
+            publishedObj[s.student_roll_no.toUpperCase()] = m;
+            publishedObj[`ust-${s.student_roll_no.toLowerCase()}`] = m;
+          }
+        });
+        localStorage.setItem(
+          `kryptedu_att_published_${normalizedDept}_${selectedDate}`,
+          JSON.stringify(publishedObj)
+        );
       } catch {
         // ignore
       }
@@ -495,17 +510,34 @@ function AttendancePage() {
         }
       );
 
-      // 2. Instantly update the React Query cache for the students table so the Students section in the sidebar reflects the new attendance immediately!
-      const finalAttendanceMap: Record<string, number> = { ...(res?.studentAttendance || {}) };
+      // 2. Instantly update the React Query cache for the students table so the Students section reflects the new attendance immediately!
+      const finalAttendanceMap: Record<string, number> = {};
+      if (res?.studentAttendance && Object.keys(res.studentAttendance).length > 0) {
+        for (const [k, v] of Object.entries(res.studentAttendance)) {
+          if (typeof v === "number" && !Number.isNaN(v)) {
+            const clean = k.toUpperCase();
+            finalAttendanceMap[clean] = v;
+            finalAttendanceMap[k] = v;
+            finalAttendanceMap[`ust-${clean.toLowerCase()}`] = v;
+          }
+        }
+      }
+
       rawCohortStudents.forEach((s) => {
-        const m = marks[s.student_id] || s.status;
-        const newPct = computeStudentCumulativeAttendance(s.student_roll_no, { [selectedDate]: m });
-        if (newPct !== null) {
-          const rollUpper = s.student_roll_no.toUpperCase();
-          finalAttendanceMap[rollUpper] = newPct;
-          finalAttendanceMap[s.student_roll_no] = newPct;
-          finalAttendanceMap[s.student_id] = newPct;
-          finalAttendanceMap[`ust-${rollUpper.toLowerCase()}`] = newPct;
+        const rollUpper = s.student_roll_no.toUpperCase();
+        if (finalAttendanceMap[rollUpper] === undefined) {
+          const m = marks[s.student_id] || marks[s.student_roll_no] || marks[rollUpper] || s.status;
+          const newPct = computeStudentCumulativeAttendance(s.student_roll_no, { [selectedDate]: m });
+          if (newPct !== null) {
+            finalAttendanceMap[rollUpper] = newPct;
+            finalAttendanceMap[s.student_roll_no] = newPct;
+            finalAttendanceMap[s.student_id] = newPct;
+            finalAttendanceMap[`ust-${rollUpper.toLowerCase()}`] = newPct;
+          }
+        } else {
+          finalAttendanceMap[s.student_id] = finalAttendanceMap[rollUpper];
+          finalAttendanceMap[s.student_roll_no] = finalAttendanceMap[rollUpper];
+          finalAttendanceMap[`ust-${rollUpper.toLowerCase()}`] = finalAttendanceMap[rollUpper];
         }
       });
 
@@ -1584,10 +1616,16 @@ function StudentAttendanceView({ data }: { data: any }) {
     setPage(1);
   };
 
+  const authPct = getAuthoritativeStudentAttendance(student.roll_no);
+  const displayPercentage =
+    authPct !== null && authPct !== undefined
+      ? authPct
+      : overall?.overallAttendancePercentage;
+
   const isSatisfactory =
-    overall?.overallAttendancePercentage !== null &&
-    overall?.overallAttendancePercentage !== undefined &&
-    overall.overallAttendancePercentage >= 75;
+    displayPercentage !== null &&
+    displayPercentage !== undefined &&
+    displayPercentage >= 75;
 
   return (
     <div className="space-y-6 pb-12">
@@ -1635,8 +1673,8 @@ function StudentAttendanceView({ data }: { data: any }) {
             <CalendarCheck className={`size-4 ${isSatisfactory ? "text-emerald-600" : "text-amber-600"}`} />
           </div>
           <div className={`mt-2 text-2xl font-bold tracking-tight ${isSatisfactory ? "text-emerald-700" : "text-amber-700"}`}>
-            {overall?.overallAttendancePercentage !== null && overall?.overallAttendancePercentage !== undefined
-              ? `${overall.overallAttendancePercentage}%`
+            {displayPercentage !== null && displayPercentage !== undefined
+              ? `${displayPercentage}%`
               : "N/A"}
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">

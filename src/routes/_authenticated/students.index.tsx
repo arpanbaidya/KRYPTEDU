@@ -50,7 +50,7 @@ function Students() {
     const qLower = deferredQ.toLowerCase();
     const liveSynced = data.map((student) => {
       const liveAtt = getAuthoritativeStudentAttendance(student.roll_no);
-      if (liveAtt !== null && liveAtt !== student.rawAttendance) {
+      if (liveAtt !== null && (liveAtt !== student.attendance || liveAtt !== student.rawAttendance)) {
         return score({ ...student, attendance: liveAtt });
       }
       return student;

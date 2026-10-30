@@ -24,7 +24,7 @@ import {
   Award,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { getAuthoritativeDemoAttendanceMap } from "@/lib/attendance";
+import { getAuthoritativeDemoAttendanceMap, getAuthoritativeStudentAttendance } from "@/lib/attendance";
 import { getAuthoritativeAcademicsCgpaMap } from "@/lib/academics";
 import { OFFICIAL_STUDENTS } from "@/lib/official-dataset";
 
@@ -182,9 +182,11 @@ function StudentDashboard() {
         // ignore
       }
 
+      const liveAtt = getAuthoritativeStudentAttendance(studentData.roll_no);
       const attMap = getAuthoritativeDemoAttendanceMap();
       const academicsCgpaMap = getAuthoritativeAcademicsCgpaMap();
       const authoritativeAtt =
+        liveAtt ??
         attMap[studentData.roll_no] ??
         attMap[studentData.roll_no?.toUpperCase()] ??
         attMap[studentData.roll_no?.toLowerCase()] ??

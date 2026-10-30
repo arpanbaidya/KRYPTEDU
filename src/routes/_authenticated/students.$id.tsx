@@ -41,7 +41,7 @@ function Profile() {
   // Authoritative real-time attendance fallback & dynamic synchronization
   const liveAtt = getAuthoritativeStudentAttendance(sRaw.roll_no);
   const s =
-    liveAtt !== null && liveAtt !== sRaw.rawAttendance
+    liveAtt !== null && (liveAtt !== sRaw.attendance || liveAtt !== sRaw.rawAttendance)
       ? score({ ...sRaw, attendance: liveAtt })
       : sRaw;
 
